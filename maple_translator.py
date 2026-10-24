@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 1  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 2  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -636,6 +636,24 @@ def polish_ai(text):
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
+OUT_PROMPT = """너는 메이플스토리 클래식 월드(GMS, 해외 서버) 채팅 통역사야.
+한국 유저(성윤)가 쓴 한국어 채팅을 {lang} 게임 채팅으로 바꿔줘.
+규칙:
+- 실제 해외 유저들이 게임에서 치는 짧고 자연스러운 채팅 말투로. 교과서 문장 금지.
+- 거래: 팝니다=S>, 삽니다=B>, 교환=T>, 구해요=L>, 가격 제안 받아요=obo / taking offers, 귓 주세요=pm me, 현재 최고가=c/o, 즉시 낙찰가=a/w, 개당=ea.
+- 금액: 한국식 만 단위를 k/m로. 17만5천 -> 175k, 120만 -> 1.2m, 50만 -> 500k.
+- 메이플 용어: 장공=glove att, 장마=glove MA, 완마=wand MA, 스마=staff MA, 귀지력/귀 인트=earring INT, 귀덱=earring DEX, 전민/전지/전힘/전운=overall DEX/INT/STR/LUK, 노작=clean, 업횟=slots, 커파=KPQ, 파퀘=PQ, 자유시장=FM, 채널=ch, 겹사=KS, 쩔=leech, 물약=pots, 맞인기=fame for fame, 썬콜=I/L, 불독=F/P, 어쌔신=sin, 시프=bandit, 사수=xbow, 투구/모자=hat.
+- 아이템 이름은 GMS 공식 영어 이름으로 (알면). 닉네임, 숫자, %, [대괄호] 내용은 그대로.
+- 고마워=ty, 축하해=gz, 잠깐만/금방 올게=brb, ㅋㅋ=lol 처럼 게임 줄임말 적극 사용.
+- 영어가 아닌 언어로 요청되면 그 나라 게이머 말투로.
+- 원문에 없는 내용(obo, 가격, 인사 등)을 덧붙이지 마. 뜻은 정확히 그대로.
+- 결과 채팅 한 줄만 출력해. 따옴표, 설명, 다른 글자 금지."""
+
+LANG_CHOICES = {"영어": ("en", "영어(English)"), "스페인어": ("es", "스페인어(Español)"),
+                "포르투갈어": ("pt", "브라질 포르투갈어(Português)"), "타갈로그어": ("tl", "필리핀 타갈로그어/영어 섞인 말투"),
+                "베트남어": ("vi", "베트남어(Tiếng Việt)")}
+
+
 class AITranslator:
     """config의 ai_engine:
        "claude_cli" = PC에 설치된 Claude Code(claude 명령어)로 번역 (구독 사용, 키 불필요)
@@ -713,6 +731,44 @@ class AITranslator:
 # ----------------------------------------------------------------------------
 # 처리 파이프라인 (OCR 줄 -> 번역 결과)
 # ----------------------------------------------------------------------------
+def quick_translate(text, sl="ko", tl="en"):
+    """구글 빠른 번역 (내 채팅 보내기용 미리보기)."""
+    import requests
+    r = requests.get("https://translate.googleapis.com/translate_a/single", timeout=6,
+                     params={"client": "gtx", "sl": sl, "tl": tl, "dt": "t", "q": text},
+                     headers={"User-Agent": "Mozilla/5.0"})
+    r.raise_for_status()
+    return "".join(seg[0] for seg in r.json()[0] if seg and seg[0])
+
+
+def ai_outbound(ai, text, lang_label):
+    """한국어 -> 게임 채팅 말투 외국어 (Claude)."""
+    prompt = OUT_PROMPT.format(lang=lang_label) + "\n\n번역할 한국어 채팅:\n" + text
+    if ai.engine == "claude_cli":
+        import subprocess
+        flags = 0x08000000 if os.name == "nt" else 0
+        proc = subprocess.run([ai.cli_path, "-p", "--model", ai.cli_model], input=prompt,
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=90, creationflags=flags)
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "claude 실행 실패").strip()[:120])
+        out = proc.stdout.strip()
+    elif ai.engine == "api":
+        import requests
+        r = requests.post("https://api.anthropic.com/v1/messages", timeout=30,
+                          headers={"x-api-key": ai.api_key, "anthropic-version": "2023-06-01",
+                                   "content-type": "application/json"},
+                          json={"model": ai.api_model, "max_tokens": 300,
+                                "messages": [{"role": "user", "content": prompt}]})
+        r.raise_for_status()
+        out = "".join(b.get("text", "") for b in r.json().get("content", [])).strip()
+    else:
+        raise RuntimeError("AI 꺼짐")
+    out = out.splitlines()[-1].strip().strip('"').strip("'") if out else ""
+    dlog("OUT-AI", text, "=>", out)
+    return out
+
+
 def translate_message(msg, glossary, translator):
     protected, slots = glossary.protect(msg)
     translated = translator.translate(protected)
@@ -814,6 +870,71 @@ def run_app():
 
     body = tk.Text(root, bg="#14161c", fg="#e8ecf4", bd=0, wrap="word",
                    font=("Malgun Gothic", cfg["font_size"]), padx=10, pady=8)
+    # --- 내 채팅 보내기 (한국어 -> 외국어) -----------------------------------
+    from tkinter import ttk
+    send_bar = tk.Frame(root, bg="#20232c")
+    send_bar.pack(side="bottom", fill="x")
+    send_result = tk.Label(root, text="아래 칸에 한국어로 쓰고 Enter → 번역돼서 자동 복사돼요 (게임에서 Ctrl+V)",
+                           bg="#181b22", fg="#8f98ab", anchor="w", justify="left",
+                           font=("Malgun Gothic", 9), padx=8, pady=4, wraplength=520, cursor="hand2")
+    send_result.pack(side="bottom", fill="x")
+    lang_var = tk.StringVar(value=cfg.get("send_lang", "영어"))
+    lang_box = ttk.Combobox(send_bar, textvariable=lang_var, values=list(LANG_CHOICES),
+                            width=8, state="readonly", font=("Malgun Gothic", 9))
+    lang_box.pack(side="left", padx=(6, 3), pady=5)
+    send_entry = tk.Entry(send_bar, bg="#2d3240", fg="#ffffff", insertbackground="white",
+                          bd=0, font=("Malgun Gothic", 10))
+    send_entry.pack(side="left", fill="x", expand=True, padx=3, pady=5, ipady=3)
+    send_state = {"seq": 0, "last": ""}
+
+    def copy_text(text):
+        root.clipboard_clear()
+        root.clipboard_append(text)
+        root.update()
+
+    def show_send(text, note, color="#ffffff"):
+        send_state["last"] = text
+        send_result.configure(text=f"{text}\n{note}", fg=color)
+
+    def do_send(_e=None):
+        raw = send_entry.get().strip()
+        if not raw:
+            return
+        lang = lang_var.get()
+        cfg["send_lang"] = lang
+        code, label = LANG_CHOICES.get(lang, ("en", "영어(English)"))
+        prefix, body_text = "", raw
+        m = re.match(r"^(/[wWㅈ]\s+\S+\s+)(.*)$", raw)  # /w 닉네임 은 그대로 두기
+        if m:
+            prefix, body_text = "/w " + m.group(1).split()[1] + " ", m.group(2)
+        send_state["seq"] += 1
+        seq = send_state["seq"]
+        send_result.configure(text="번역 중…", fg="#8f98ab")
+
+        def job():
+            try:
+                quick = prefix + quick_translate(body_text, "ko", code)
+                root.after(0, lambda: (seq == send_state["seq"]) and (
+                    copy_text(quick), show_send(quick, "▶ 빠른 번역 복사됨 · AI가 다듬는 중…", "#e8ecf4")))
+            except Exception as e:  # noqa: BLE001
+                root.after(0, lambda: show_send(raw, f"빠른 번역 실패: {e}", "#ff7b7b"))
+            if ai.enabled:
+                try:
+                    better = prefix + ai_outbound(ai, body_text, label)
+                    if better.strip():
+                        root.after(0, lambda: (seq == send_state["seq"]) and (
+                            copy_text(better), show_send(better, "✦ AI 번역 복사됨 → 게임에서 Ctrl+V", "#7ee08a")))
+                except Exception as e:  # noqa: BLE001
+                    dlog("OUT-AI-FAIL", repr(e))
+        threading.Thread(target=job, daemon=True).start()
+        send_entry.delete(0, "end")
+
+    send_entry.bind("<Return>", do_send)
+    send_result.bind("<Button-1>", lambda e: send_state["last"] and (
+        copy_text(send_state["last"]), status.configure(text="다시 복사됨", fg="#ffcc66")))
+    tk.Button(send_bar, text="번역·복사", command=do_send, bg="#3b6ef5", fg="white", bd=0,
+              activebackground="#5a86ff", font=("Malgun Gothic", 9), padx=8).pack(side="right", padx=6, pady=5)
+
     body.pack(fill="both", expand=True)
     body.tag_configure("name", foreground="#ffb547", font=("Malgun Gothic", cfg["font_size"], "bold"))
     body.tag_configure("orig", foreground="#6b7385", font=("Segoe UI", max(8, cfg["font_size"] - 2)))
