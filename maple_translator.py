@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 6  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 7  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1188,8 +1188,9 @@ def run_app():
                     pending[0] = None
                     msg = normalize_trade(merge_item_links(msg, items))
                     kind = classify_line(ocr.last_img, rect)
-                    if len(re.findall(r"[A-Za-z가-힣]", msg)) < 3:
-                        continue  # OCR 찌꺼기
+                    letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
+                    if letters < (1 if name else 3):
+                        continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower():
                         out_q.put((name, msg, msg, None, kind, next_id(), ch))
                         continue
