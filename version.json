@@ -1,1 +1,1 @@
-{"version": 7, "note": "닉네임 있는 짧은 채팅(dd, ty 등)도 표시, 파티 글자색 인식 강화", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 8, "note": "아이콘을 한글로 잘못 읽은 가짜 [아이템] 제거, @@@@ 찌꺼기 제거", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

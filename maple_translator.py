@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 7  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 8  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -509,12 +509,30 @@ class ScreenOCR:
                     kcy = krect[1] + krect[3] / 2
                     if abs(kcy - cy) <= max(rect[3], krect[3]) * 0.6:
                         found = re.findall(r"\[[^\[\]]*[가-힣][^\[\]]*\]", ktext)
-                        if not found:  # 대괄호를 못 읽은 경우: 한글 덩어리를 아이템 이름으로
+                        if not found and re.search(r"[\[\]]", text):
+                            # 대괄호를 못 읽은 경우: 영어 줄에 아이템 링크 흔적([ ])이 있을 때만
+                            # 한글 덩어리를 아이템 이름으로 (아이콘·특수문자를 한글로 잘못 읽은 찌꺼기 방지)
                             found = ["[" + h.strip() + "]" for h in
                                      re.findall(r"[가-힣][가-힣0-9 +\-]*[가-힣]", ktext)]
+                        found = [f for f in found if _looks_like_item(f)]
                         items += [f for f in found if f not in items]
             out.append((text, rect, items))
         return out
+
+
+# 아이템 이름에 거의 안 나오는 받침 조합 (OCR이 아이콘을 한글로 잘못 읽을 때 자주 생김)
+_RARE_FINALS = set("ㄳㄵㄶㄺㄻㄼㄽㄾㄿㅀㅄㅋㅌㅍㅎㅊㅈㅅㅆ")
+_FINALS = [""] + list("ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ")
+
+
+def _looks_like_item(item):
+    """[녛쐈] [궂무춘과] 같은 OCR 찌꺼기를 걸러냄."""
+    syl = [c for c in item if "가" <= c <= "힣"]
+    if len(syl) < 2:
+        return False
+    rare = sum(1 for c in syl if _FINALS[(ord(c) - 0xAC00) % 28] in _RARE_FINALS)
+    double = sum(1 for c in syl if (ord(c) - 0xAC00) // 588 in (1, 4, 8, 10, 13))  # ㄲㄸㅃㅆㅉ 초성
+    return (rare + double) / len(syl) < 0.34
 
 
 # OCR이 S> B> 를 S) 5> B) 8> S» 처럼 잘못 읽는 경우를 원래대로 되돌림
@@ -1187,6 +1205,7 @@ def run_app():
                         items = list(p_items) + [i for i in items if i not in p_items]
                     pending[0] = None
                     msg = normalize_trade(merge_item_links(msg, items))
+                    msg = re.sub(r"[@©®]{3,}", "", msg).strip()  # 아이콘을 @@@@ 로 읽은 찌꺼기
                     kind = classify_line(ocr.last_img, rect)
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
                     if letters < (1 if name else 3):
