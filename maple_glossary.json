@@ -60,8 +60,6 @@
     "gonna": "going to",
     "lfg": "looking for group",
     "lfm": "looking for more members",
-    "dm": "message me",
-    "pm": "message me",
     "hmu": "message me",
     "mins": "minutes",
     "min": "minute",
@@ -287,7 +285,17 @@
     "basic": "초급",
     "cheap": "싸게",
     "scroll for": "주문서",
-    "work gloves": "목장갑"
+    "work gloves": "목장갑",
+    "pm": "귓 주세요",
+    "dm": "귓 주세요",
+    "pm me": "귓 주세요",
+    "best offer": "최고가 제안 받아요",
+    "b/o": "최고가 제안 받아요",
+    "parrina": "귀고리",
+    "earrina": "귀고리",
+    "earrinq": "귀고리",
+    "earing int": "귀고리 지력",
+    "get it": "가져가세요"
   },
   "terms_case": {
     "MA": "마력",
@@ -305,7 +313,12 @@
     "I/L": "썬콜",
     "FP": "불독",
     "F/P": "불독",
-    "DK": "다크나이트"
+    "DK": "다크나이트",
+    "Int": "지력(INT)",
+    "Dex": "민첩(DEX)",
+    "Str": "힘(STR)",
+    "Luk": "운(LUK)",
+    "Att": "공격력"
   },
   "names": {
     "_설명": "직업·별명처럼 번역기가 엉뚱하게 바꾸는 단어. 소문자로 적고 한국어 뜻을 쓰세요.",

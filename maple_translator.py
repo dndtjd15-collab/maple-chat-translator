@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 8  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 9  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -201,6 +201,7 @@ class Glossary:
         missing = [s for i, s in enumerate(slots) if s not in out]
         if missing:
             out = out + "  (" + ", ".join(missing) + ")"
+        out = re.sub(r"\s+([,.!?])", r"\1", out)
         out = re.sub(r"\[\s+", "[", out)
         out = re.sub(r"\s+\]", "]", out)
         return re.sub(r"\s{2,}", " ", out).strip()
@@ -365,6 +366,7 @@ def parse_line(raw):
     형식 2) 닉네임 : 대화           (일반/파티)
     배지는 있는데 대화가 없으면 ('닉네임', '', 채널) -> 다음 줄에 대화가 이어짐."""
     line = raw.strip()
+    line = re.sub(r"(?:(?<=\s)|^)[Il|!1\[(]([CcGg][Hh]\s*[0-9OoZzSsIlB]{1,2})", r"\1", line)  # 배지 테두리 찌꺼기
     badge = BADGE_RE.search(line)
     if badge and badge.start() <= 26:
         name = _clean_name(line[:badge.start()])
@@ -373,6 +375,8 @@ def parse_line(raw):
         rest = re.sub(r"^\s*[:：;]\s*", "", rest).strip()  # 배지 뒤 콜론 제거 (OCR이 놓쳐도 OK)
         if name:
             return name, rest, ch
+        if badge.start() <= 2:  # 닉네임 부분을 못 읽었어도 배지는 떼고 채널만 기억
+            return None, rest, ch
     m = LINE_RE.match(line)
     if not m:
         m2 = re.match(r"^\s*([^:：;\s][^:：;]{0,30}?)\s*[:：;]\s*$", line)
@@ -686,6 +690,9 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
   필리핀(타갈로그): po=요, pre/pare=형, tara=가자, sige=ㅇㅋ, salamat=고마워.
   베트남어: ae=형들/다들, dc=됨, ko/k=안 돼/아니, mn=다들.
 - OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측한 뒤 그걸 한국어로 번역하고, 앞에 (추정)을 붙여. 영어를 그대로 출력하지 마.
+- OCR이 철자를 깨뜨린 단어는 메이플 거래 문맥으로 원래 단어를 추측해서 번역해 (확실할 때만).
+  예) "parrina"/"earrina"/"earing" → earring(귀고리), "f 7."/"6O%"/"6o%" 가 주문서 자리에 있으면 60%, "thesp" → these, "lnt"/"1nt" → INT
+  예) "thesp + 3 parrina f 7. Int for 400k, PM" → [팝니다] 이거 +3 귀지력 60% 3개 40만, 귓 주세요
 - OCR이 자주 틀리는 것: "AO"/"Alt"/"AH" 뒤에 장비 이름이 붙어 있으면 대부분 "Att"(공격력), "0"↔"O", "1"↔"l"↔"I". 예) "S>88 AORising" = "S>88 Att Rising" → [팝니다] 공 88 라이징
 - pmo = 귓으로 가격 제안 주세요, pm = 귓 주세요, @ = 가격(예: @150k = 15만에).
 - sin은 어쌔신(도적 직업)이지 '죄'나 썬콜이 아니야. 장공 60%처럼 이미 뜻이 들어간 말 뒤에 '공격력'을 또 붙이지 마.

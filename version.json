@@ -1,1 +1,1 @@
-{"version": 8, "note": "아이콘을 한글로 잘못 읽은 가짜 [아이템] 제거, @@@@ 찌꺼기 제거", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 9, "note": "ICH19 배지 인식, OCR 철자 깨짐 AI 보정, PM=귓 주세요, Int/Dex 등 용어", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
