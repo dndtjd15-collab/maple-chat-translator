@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "첫 자동 업데이트 버전",
+  "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]
+}

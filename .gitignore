@@ -1,0 +1,5 @@
+config.json
+my_glossary.json
+debug_log.txt
+__pycache__/
+*.new
