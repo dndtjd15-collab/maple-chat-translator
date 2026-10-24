@@ -1,1 +1,1 @@
-{"version": 12, "note": "채팅 순서 꼬임 수정 (화면 순서대로 표시, 옛 줄 재등장 방지)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 14, "note": "팝니다/삽니다/★찜 탭, 찾는 물건 알림, Claude 사용량 약 1/3로 절약, AI 켜기/끄기, 문제 자동 기록", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 12  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 14  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -664,6 +664,9 @@ class ScreenOCR:
                             # 한글 덩어리를 아이템 이름으로 (아이콘·특수문자를 한글로 잘못 읽은 찌꺼기 방지)
                             found = ["[" + h.strip() + "]" for h in
                                      re.findall(r"[가-힣][가-힣0-9 +\-]*[가-힣]", ktext)]
+                        bad = [f for f in found if not _looks_like_item(f)]
+                        if bad:
+                            report_issue("아이템 이름이 깨짐", text + "  /  한글OCR: " + ktext, img=self._orig, rect=rect)
                         found = [f for f in found if _looks_like_item(f)]
                         items += [f for f in found if f not in items]
             out.append((text, rect, items))
@@ -721,6 +724,40 @@ def dlog(*parts):
 
 DEBUG = [False]
 
+# ---- 문제 자동 기록: 이상해 보이는 줄을 스스로 찾아서 모아둠 (나중에 한 번에 고치기용) ----
+ISSUE_PATH = os.path.join(APP_DIR, "문제기록.txt")
+ISSUE_DIR = os.path.join(APP_DIR, "문제기록_이미지")
+_issue_seen = set()
+_EN_OK = {"INT", "DEX", "STR", "LUK", "HP", "MP", "AP", "SP", "PQ", "KPQ", "LPQ", "OPQ", "FM", "NX", "CH",
+          "ATT", "MA", "GM", "AFK", "LOL", "OK", "PC", "DM", "VIP", "EXP", "NPC", "ID", "LV", "MESO"}
+
+
+def report_issue(reason, raw="", orig="", tr="", img=None, rect=None):
+    key = reason + "|" + normalize(raw or orig)[:60]
+    if key in _issue_seen or len(_issue_seen) > 2000:
+        return
+    _issue_seen.add(key)
+    try:
+        if os.path.exists(ISSUE_PATH) and os.path.getsize(ISSUE_PATH) > 1_000_000:
+            return
+        pic = ""
+        if img is not None and rect:
+            os.makedirs(ISSUE_DIR, exist_ok=True)
+            x, y, w, h = rect
+            pic = time.strftime("%m%d_%H%M%S_") + str(len(_issue_seen)) + ".png"
+            img.crop((0, max(0, y - 3), img.width, min(img.height, y + h + 3))).save(os.path.join(ISSUE_DIR, pic))
+        with open(ISSUE_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%m-%d %H:%M:%S')}] {reason}\n  OCR: {raw}\n  원문: {orig}\n  번역: {tr}\n"
+                    + (f"  이미지: {pic}\n" if pic else "") + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def english_left(tr, orig):
+    """번역 결과에 남은 영어 단어 (닉네임·스탯 약어 제외)."""
+    words = re.findall(r"[A-Za-z][A-Za-z']{2,}", re.sub(r"\[[^\]]*\]", "", tr or ""))
+    return [w for w in words if w.upper() not in _EN_OK]
+
 
 def merge_item_links(msg, items):
     """영어 OCR이 깨뜨린 [아이템] 자리를 한국어 OCR로 읽은 [아이템 이름]으로 교체."""
@@ -757,6 +794,90 @@ KIND_COLORS = {k: c for k, _, c in BG_KINDS + TEXT_KINDS}
 KIND_COLORS["일반"] = "#d0d6e2"
 
 
+# ---- 거래 글 판별 / 찾는 물건(찜) ------------------------------------------
+_SELL_RE = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\bselling\b|\bvendo\b|\bvendiendo\b|\bbenta\b", re.I)
+_BUY_RE = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\bbuying\b|\bcompro\b|\bbibili\b", re.I)
+_MONEY_RE = re.compile(r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z])", re.I)
+_MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:\s*(\d+)\s*만)?|(\d+(?:\.\d+)?)\s*만(?:\s*(\d+)\s*천)?")
+
+
+# 찜 키워드(한국어) -> 같이 찾을 영어/줄임말
+WATCH_ALIASES = {
+    "귀고리지력": ["earringint", "귀지력", "귀고리지력"], "귀지력": ["earringint", "귀고리지력"],
+    "귀고리민첩": ["earringdex", "귀덱"], "귀고리힘": ["earringstr"], "귀고리운": ["earringluk"],
+    "장갑공격력": ["gloveatt", "glovesatt", "장공"], "장공": ["gloveatt", "glovesatt", "장갑공격력"],
+    "장갑마력": ["glovema", "glovesma", "장마"], "장마": ["glovema", "장갑마력"],
+    "완드마력": ["wandma", "wandmatk", "완마"], "완마": ["wandma", "완드마력"],
+    "스태프마력": ["staffma", "staffmatk", "스마"], "스마": ["staffma", "스태프마력"],
+    "전신지력": ["overallint", "전지"], "전신민첩": ["overalldex", "전민"],
+    "망토지력": ["capeint"], "망토민첩": ["capedex"],
+    "투구명중": ["helmacc", "hatacc"], "신발이동속도": ["shoespeed", "shoesspeed"],
+    "페어리완드": ["fairywand"], "이블윙즈": ["evilwings"], "크로미": ["cromi"],
+    "에메랄드귀고리": ["emeraldearring"], "목장갑": ["workgloves"],
+}
+
+
+def trade_of(msg):
+    """'sell' (팝니다) / 'buy' (삽니다) / None. 한 줄에 둘 다 있으면 먼저 나온 쪽."""
+    s_m, b_m = _SELL_RE.search(msg), _BUY_RE.search(msg)
+    if s_m and b_m:
+        return "sell" if s_m.start() < b_m.start() else "buy"
+    return "sell" if s_m else "buy" if b_m else None
+
+
+def prices_in(text):
+    """글 안의 메소 금액들 (메소 단위 정수)."""
+    out = []
+    for m in _MONEY_RE.finditer(text):
+        num = float(m.group(1).replace(",", "."))
+        out.append(int(num * (1_000 if m.group(2).lower().startswith("k") else 1_000_000)))
+    for m in _MONEY_KO_RE.finditer(text):
+        if m.group(1):
+            out.append(int(float(m.group(1)) * 100_000_000 + int(m.group(2) or 0) * 10_000))
+        else:
+            out.append(int(float(m.group(3)) * 10_000 + int(m.group(4) or 0) * 1_000))
+    return [p for p in out if p >= 1000]
+
+
+def parse_price_input(text):
+    """사용자 입력 '30' / '30만' / '300k' / '1.2m' -> 메소. 빈칸이면 None."""
+    t = text.strip().replace(",", "")
+    if not t:
+        return None
+    if re.fullmatch(r"\d+(?:\.\d+)?", t):
+        return int(float(t) * 10_000)  # 숫자만 쓰면 '만' 단위
+    p = prices_in(t)
+    return p[0] if p else None
+
+
+def _squash(t):
+    return re.sub(r"\s+", "", (t or "").lower())
+
+
+def watch_match(watches, texts, trade):
+    """찜 목록과 비교. 맞으면 (찜 항목, 가격 설명) 반환, 아니면 None. 판매 글만."""
+    if trade != "sell" or not watches:
+        return None
+    blob = _squash(" ".join(t for t in texts if t))
+    for w in watches:
+        words = [_squash(x) for x in re.split(r"[\s,]+", w.get("keyword", "")) if x.strip()]
+        alts = [_squash(a) for a in w.get("aliases", [])]
+        if not words:
+            continue
+        if not (all(x in blob for x in words) or any(a and a in blob for a in alts)):
+            continue
+        limit = w.get("max_price")
+        prices = prices_in(" ".join(t for t in texts if t))
+        if limit:
+            if prices and min(prices) > limit:
+                continue
+            note = f"{format_meso(min(prices))}" if prices else "가격 미표시"
+        else:
+            note = format_meso(min(prices)) if prices else ""
+        return w, note
+    return None
+
+
 # 보기 탭: 이름 -> 보여줄 종류 (None = 전부)
 VIEW_TABS = {
     "전체": None,
@@ -766,6 +887,9 @@ VIEW_TABS = {
     "특확": {"특확"},
     "확성기": {"확성기", "고확", "특확"},
     "귓속말": {"귓속말"},
+    "팝니다": "sell",
+    "삽니다": "buy",
+    "★찜": "watch",
 }
 
 
@@ -976,21 +1100,36 @@ class AITranslator:
         hints = self.glossary_hints(payload)
         return ("\n\n이번 채팅에 나온 용어의 한국 메이플 공식 이름 (꼭 이대로 써):\n" + "\n".join(hints)) if hints else ""
 
+    calls = 0
+    lean_ok = [True]
+
+    def run_cli(self, prompt):
+        """claude CLI 실행. 가능하면 Claude Code 기본 지시문·도구를 빼고 가볍게 실행해서 토큰 절약."""
+        import subprocess
+        flags = 0x08000000 if os.name == "nt" else 0  # 콘솔 창 안 띄우기
+        base = [self.cli_path, "-p", "--model", self.cli_model]
+        lean = ["--system-prompt", "너는 번역 도구야. 사용자 지시에 적힌 형식대로 결과만 출력해.",
+                "--tools", "", "--strict-mcp-config", "--setting-sources", ""]
+        tries = [base + lean, base] if self.lean_ok[0] else [base]
+        for args in tries:
+            proc = subprocess.run(args, input=prompt, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", timeout=90, creationflags=flags)
+            if proc.returncode == 0 and proc.stdout.strip():
+                AITranslator.calls += 1
+                return proc.stdout
+            if args is not tries[-1]:
+                dlog("AI-LEAN-FAIL", proc.returncode, (proc.stderr or proc.stdout)[:200])
+                self.lean_ok[0] = False  # 이 버전 claude 는 가벼운 옵션을 모름 -> 기본 실행
+        dlog("AI-ERR", proc.returncode, proc.stderr[:300], proc.stdout[:300])
+        raise RuntimeError((proc.stderr or proc.stdout or "claude 실행 실패").strip()[:120])
+
     def translate_batch(self, msgs):
         payload = "\n".join(f"{i + 1}|{m.replace(chr(10), ' ')}" for i, m in enumerate(msgs))
         if self.engine == "claude_cli":
-            import subprocess
-            flags = 0x08000000 if os.name == "nt" else 0  # 콘솔 창 안 띄우기
-            proc = subprocess.run(
-                [self.cli_path, "-p", "--model", self.cli_model],
-                input=AI_PROMPT + self._hint_block(payload) + "\n\n이번 입력:\n" + payload, capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=90, creationflags=flags)
-            if proc.returncode != 0:
-                dlog("AI-ERR", proc.returncode, proc.stderr[:300], proc.stdout[:300])
-                raise RuntimeError((proc.stderr or proc.stdout or "claude 실행 실패").strip()[:120])
+            out = self.run_cli(AI_PROMPT + self._hint_block(payload) + "\n\n이번 입력:\n" + payload)
             dlog("AI-IN", payload.replace("\n", " / "))
-            dlog("AI-OUT", proc.stdout.strip().replace("\n", " / "))
-            return self._parse(proc.stdout, len(msgs))
+            dlog("AI-OUT", out.strip().replace("\n", " / "))
+            return self._parse(out, len(msgs))
         if self.engine == "api":
             import requests
             r = requests.post(
@@ -1023,14 +1162,7 @@ def ai_outbound(ai, text, lang_label):
     """한국어 -> 게임 채팅 말투 외국어 (Claude)."""
     prompt = OUT_PROMPT.format(lang=lang_label) + "\n\n번역할 한국어 채팅:\n" + text
     if ai.engine == "claude_cli":
-        import subprocess
-        flags = 0x08000000 if os.name == "nt" else 0
-        proc = subprocess.run([ai.cli_path, "-p", "--model", ai.cli_model], input=prompt,
-                              capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=90, creationflags=flags)
-        if proc.returncode != 0:
-            raise RuntimeError((proc.stderr or proc.stdout or "claude 실행 실패").strip()[:120])
-        out = proc.stdout.strip()
+        out = ai.run_cli(prompt).strip()
     elif ai.engine == "api":
         import requests
         r = requests.post("https://api.anthropic.com/v1/messages", timeout=30,
@@ -1238,6 +1370,9 @@ def run_app():
     body.tag_configure("orig", foreground="#6b7385", font=("Segoe UI", max(8, cfg["font_size"] - 2)))
     body.tag_configure("info", foreground="#7fb4ff")
     body.tag_configure("msg", foreground="#ffffff", lmargin1=0, lmargin2=28)
+    body.tag_configure("watchbar", background="#ffd23f", foreground="#1a1a1a",
+                       font=("Malgun Gothic", max(8, cfg["font_size"] - 1), "bold"))
+    body.tag_configure("watchmsg", background="#3d3410", foreground="#fff3b0")
     body.tag_configure("gap", font=("Malgun Gothic", 3))
     body.tag_configure("chan", foreground="#8f98ab", font=("Segoe UI", max(8, cfg["font_size"] - 2)))
     body.tag_configure("err", foreground="#ff7b7b")
@@ -1258,6 +1393,99 @@ def run_app():
         status.configure(text=f"복사됨: {text.strip()}", fg="#ffcc66")
         root.after(1500, lambda: status.configure(text=prev[0], fg=prev[1]))
 
+    def alert_sound():
+        if not cfg.get("watch_sound", True):
+            return
+        try:
+            import winsound
+            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+        except Exception:  # noqa: BLE001
+            root.bell()
+
+    def check_watch(e, sound=True):
+        if e[3] or e[9]:
+            return
+        res = watch_match(cfg.get("watch") or [], [e[1], e[2], e[10]], e[8])
+        if res:
+            w, note = res
+            e[9] = w["keyword"] + (f" · {note}" if note else "")
+            if sound:
+                alert_sound()
+            status.configure(text=f"★ 찜 매물: {w['keyword']} {note}  ← 닉네임 오른쪽 클릭 = 귓", fg="#ffd23f")
+
+    def open_watch():
+        win = tk.Toplevel(root)
+        win.title("찾는 물건 (찜)")
+        win.attributes("-topmost", True)
+        win.configure(bg="#14161c")
+        win.geometry("420x360")
+        tk.Label(win, text="판매 글(S>)에 이 물건이 나오면 노랗게 표시 + 소리\n"
+                           "최대 가격은 비워두면 가격 상관없이 알림 (예: 30 = 30만, 1.2m, 300k)",
+                 bg="#14161c", fg="#9aa3b5", justify="left", font=("Malgun Gothic", 9)).pack(anchor="w", padx=10, pady=(8, 4))
+        lst = tk.Listbox(win, bg="#20232c", fg="#e8ecf4", bd=0, font=("Malgun Gothic", 10),
+                         selectbackground="#3b6ef5", height=8)
+        lst.pack(fill="both", expand=True, padx=10)
+
+        def refresh():
+            lst.delete(0, "end")
+            for w in cfg.get("watch") or []:
+                lim = w.get("max_price")
+                lst.insert("end", f"{w['keyword']}   " + (f"≤ {format_meso(lim)}" if lim else "(가격 상관없음)"))
+
+        row = tk.Frame(win, bg="#14161c")
+        row.pack(fill="x", padx=10, pady=6)
+        tk.Label(row, text="물건", bg="#14161c", fg="#e8ecf4", font=("Malgun Gothic", 9)).pack(side="left")
+        kw = tk.Entry(row, bg="#2d3240", fg="white", insertbackground="white", bd=0, width=16, font=("Malgun Gothic", 10))
+        kw.pack(side="left", padx=4, ipady=2)
+        tk.Label(row, text="최대가", bg="#14161c", fg="#e8ecf4", font=("Malgun Gothic", 9)).pack(side="left")
+        pr = tk.Entry(row, bg="#2d3240", fg="white", insertbackground="white", bd=0, width=8, font=("Malgun Gothic", 10))
+        pr.pack(side="left", padx=4, ipady=2)
+
+        def add(_e=None):
+            k = kw.get().strip()
+            if not k:
+                return
+            item = {"keyword": k, "max_price": parse_price_input(pr.get())}
+            # 한국어로 쓰면 영어 원문/줄임말도 같이 찾도록 별칭 추가
+            item["aliases"] = WATCH_ALIASES.get(re.sub(r"\s+", "", k), [])
+            cfg.setdefault("watch", []).append(item)
+            save_config(cfg)
+            kw.delete(0, "end")
+            pr.delete(0, "end")
+            refresh()
+            for e in entries:  # 이미 떠 있는 글도 다시 확인
+                e[9] = None
+                check_watch(e, sound=False)
+            render()
+
+        def remove():
+            sel = lst.curselection()
+            if sel:
+                del cfg["watch"][sel[0]]
+                save_config(cfg)
+                refresh()
+                for e in entries:
+                    e[9] = None
+                    check_watch(e, sound=False)
+                render()
+
+        kw.bind("<Return>", add)
+        pr.bind("<Return>", add)
+        bb = tk.Frame(win, bg="#14161c")
+        bb.pack(fill="x", padx=10, pady=(0, 8))
+        for t, c in (("추가", add), ("선택 삭제", remove), ("닫기", win.destroy)):
+            tk.Button(bb, text=t, command=c, bg="#2d3240", fg="#e8ecf4", bd=0,
+                      font=("Malgun Gothic", 9), padx=10).pack(side="left", padx=3)
+        snd = tk.BooleanVar(value=cfg.get("watch_sound", True))
+
+        def toggle_snd():
+            cfg["watch_sound"] = snd.get()
+            save_config(cfg)
+        tk.Checkbutton(bb, text="소리", variable=snd, command=toggle_snd, bg="#14161c", fg="#e8ecf4",
+                       selectcolor="#2d3240", activebackground="#14161c", font=("Malgun Gothic", 9)).pack(side="right")
+        refresh()
+        kw.focus_set()
+
     def render():
         body.configure(state="normal")
         body.delete("1.0", "end")
@@ -1267,13 +1495,29 @@ def run_app():
         hidden = set(cfg.get("hide_kinds") or [])
         view = view_var.get()
         allowed = VIEW_TABS.get(view)
-        shown = [e for e in entries if not (e[4] and e[4] in hidden)
-                 and (allowed is None or (not e[3] and (e[4] or "일반") in allowed))]
-        for name, tr, orig, tag, kind, _eid, is_ai, ch in shown[-cfg["max_lines"]:]:
+
+        def ok(e):
+            if e[4] and e[4] in hidden:
+                return False
+            if allowed is None:
+                return True
+            if e[3]:
+                return False
+            if allowed in ("sell", "buy"):
+                return e[8] == allowed
+            if allowed == "watch":
+                return bool(e[9])
+            return (e[4] or "일반") in allowed
+        shown = [e for e in entries if ok(e)]
+        for e in shown[-cfg["max_lines"]:]:
+            name, tr, orig, tag, kind, _eid, is_ai, ch, _trade, hit = e[:10]
             if tag:
                 body.insert("end", tr + "\n", tag)
                 continue
             # 1줄: [종류] 닉네임
+            if hit:
+                body.insert("end", f" ★ 찜: {hit} ", "watchbar")
+                body.insert("end", "\n")
             if kind:
                 body.insert("end", f"[{kind}] ", "k_" + kind)
             if name:
@@ -1289,7 +1533,7 @@ def run_app():
                 body.insert("end", "\n")
             # 닉네임이 없는 줄 = 앞 채팅이 길어서 줄바꿈된 부분 -> 내용만 표시
             # 2줄: 번역된 대화 내용
-            body.insert("end", ("  ✦ " if is_ai else "  ▶ ") + tr + "\n", "msg")
+            body.insert("end", ("  ✦ " if is_ai else "  ▶ ") + tr + "\n", ("msg", "watchmsg") if hit else "msg")
             # 3줄: 원문 (선택)
             if cfg["show_original"] and orig and orig != tr:
                 body.insert("end", "     " + orig + "\n", "orig")
@@ -1298,7 +1542,7 @@ def run_app():
         body.see("end")
 
     def info(msg, tag="info"):
-        entries.append([None, msg, None, tag, None, 0, False, None])
+        entries.append([None, msg, None, tag, None, 0, False, None, None, None, None])
         render()
 
     # --- 영역 선택 ---------------------------------------------------------
@@ -1362,6 +1606,8 @@ def run_app():
                     if idx not in fresh:
                         continue
                     name, msg, ch = parse_line(raw)
+                    if ch and not name and not pending[0]:
+                        report_issue("닉네임 못 읽음 (배지는 찾음)", raw, img=ocr.last_img, rect=rect)
                     if name and not msg.strip():
                         pending[0] = (name, ch, items)  # 닉네임만 읽힌 줄 -> 다음 줄이 대화
                         continue
@@ -1393,10 +1639,12 @@ def run_app():
                     eid = next_id()
                     if how == "now":
                         name, tr, msg, tag, kind, ch = val
-                        out_q.put((name, tr, msg, tag, kind, eid, ch))
+                        out_q.put((name, tr, msg, tag, kind, eid, ch, msg, trade_of(msg)))
                     else:
-                        name, msg, _p, slots, kind, ch = batch[val]
-                        out_q.put((name, glossary.restore(translated[val], slots), msg, None, kind, eid, ch))
+                        name, msg, prot, slots, kind, ch = batch[val]
+                        kor = glossary.restore(prot, slots)  # 용어만 한국어로 바꾼 원문 (찜 검색용)
+                        out_q.put((name, glossary.restore(translated[val], slots), msg, None, kind, eid, ch,
+                                   kor, trade_of(msg)))
                         if ai.enabled:
                             ai_q.put((eid, msg))
                 if batch:
@@ -1419,8 +1667,10 @@ def run_app():
         fails = 0
         while True:
             job = [ai_q.get()]
-            time.sleep(0.4)  # 같이 올라온 줄 모아서 한 번에
-            while not ai_q.empty() and len(job) < 15:
+            if cfg.get("ai_paused"):
+                continue  # AI 꺼둔 동안은 구글 번역만
+            time.sleep(float(cfg.get("ai_batch_wait", 2.0)))  # 같이 올라온 줄 모아서 한 번에 (호출 횟수 = 사용량 절약)
+            while not ai_q.empty() and len(job) < 25:
                 job.append(ai_q.get_nowait())
             try:
                 outs = ai.translate_batch([m for _i, m in job])
@@ -1449,9 +1699,19 @@ def run_app():
                 for e in reversed(entries):
                     if e[5] == item[1]:
                         e[1], e[6] = item[2], True
+                        left = english_left(item[2], e[2])
+                        if left and e[0] and left != [e[0]]:
+                            left = [w for w in left if w.lower() != (e[0] or "").lower()]
+                        if left:
+                            report_issue("번역에 영어가 남음: " + ", ".join(left[:5]), e[2] or "", e[2] or "", item[2])
+                        check_watch(e)
                         break
             else:
-                entries.append(list(item[:6]) + [False, item[6] if len(item) > 6 else None])
+                ex = list(item) + [None] * (9 - len(item))
+                # [0닉 1번역 2원문 3태그 4종류 5id 6AI 7채널 8거래 9찜 10검색용]
+                e = list(ex[:6]) + [False, ex[6], ex[8], None, ex[7]]
+                entries.append(e)
+                check_watch(e)
             changed = True
         if len(entries) > 200:
             del entries[:-200]
@@ -1504,6 +1764,16 @@ def run_app():
 
     btn("✕", on_close)
     btn("원문", toggle_orig)
+    btn("★찜", open_watch)
+
+    def toggle_ai():
+        cfg["ai_paused"] = not cfg.get("ai_paused")
+        save_config(cfg)
+        ai_btn.configure(text="AI 꺼짐" if cfg["ai_paused"] else "AI 켜짐")
+        info("AI 번역 일시정지 (구글 번역만, Claude 사용량 0)" if cfg["ai_paused"]
+             else f"AI 번역 다시 켬 (이번 실행 AI 호출 {AITranslator.calls}회)")
+    if ai.enabled:
+        ai_btn = btn("AI 꺼짐" if cfg.get("ai_paused") else "AI 켜짐", toggle_ai)
     btn("사전 새로고침", reload_glossary)
     btn("영역(F9)", select_region)
     start_btn = btn("▶ 시작", toggle)
