@@ -80,7 +80,7 @@ AI 번역 (진짜 한국 유저 말투) - Claude 사용
   "interval_sec": 1.2     몇 초마다 읽을지 (느리면 1.5~2)
   "ocr_lang": "en"        영어 OCR. 한글 아이템 이름까지 읽고 싶으면 "ko"
   "font_size": 11         오버레이 글자 크기
-  "max_lines": 12         보여줄 줄 수
+  "max_lines": 25         보여줄 줄 수 (창을 키우면 더 많이 보여요)
   "my_name": "SungWoong"  내 채팅은 번역 안 함
 
 

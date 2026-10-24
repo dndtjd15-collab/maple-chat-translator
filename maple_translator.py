@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 2  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 3  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
     "anthropic_api_key": "",    # ai_engine이 api일 때만
     "ai_api_model": "claude-haiku-5-5",       # (선택) DeepL 무료 API 키 - 넣으면 가장 빠르고 정확
     "upscale": 2.5,            # 캡처 확대 배율 (작은 글씨 인식률 향상)
-    "max_lines": 12,           # 오버레이에 보여줄 줄 수
+    "max_lines": 25,           # 오버레이에 보여줄 줄 수
     "font_size": 11,
     "show_original": True,     # 번역 아래 원문 표시
     "my_name": "SungWoong",    # 내 채팅은 번역 생략
@@ -62,6 +62,8 @@ def load_config():
             print("config.json 읽기 실패, 기본값 사용:", e)
     if cfg.get("interval_sec") == 1.2:  # 예전 버전 기본값이면 빠른 값으로
         cfg["interval_sec"] = DEFAULT_CONFIG["interval_sec"]
+    if cfg.get("max_lines") == 12:  # 예전 기본값이면 더 많이 보이게
+        cfg["max_lines"] = DEFAULT_CONFIG["max_lines"]
     return cfg
 
 
@@ -400,27 +402,44 @@ class ScreenOCR:
         return img
 
     def _ocr(self, img, lang):
+        """OCR 후 단어들을 '같은 높이'끼리 다시 묶어서 한 줄로 만든다.
+        (CH 배지·하트 아이콘 때문에 윈도우 OCR이 한 줄을 여러 조각으로 쪼개는 문제 해결)"""
         import asyncio
         import winocr
         result = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(img, lang)))
         scale = self.upscale or 1
-        lines = []
+        words = []
         for ln in getattr(result, "lines", None) or []:
-            text = (getattr(ln, "text", "") or "").strip()
-            if not text:
-                continue
-            rect = None
             try:
-                xs, ys, xe, ye = [], [], [], []
                 for w in ln.words:
                     r = w.bounding_rect
-                    xs.append(r.x); ys.append(r.y)
-                    xe.append(r.x + r.width); ye.append(r.y + r.height)
-                rect = (int(min(xs) / scale), int(min(ys) / scale),
-                        int((max(xe) - min(xs)) / scale), int((max(ye) - min(ys)) / scale))
+                    t = (getattr(w, "text", "") or "").strip()
+                    if t:
+                        words.append((t, r.x / scale, r.y / scale, r.width / scale, r.height / scale))
             except Exception:  # noqa: BLE001
-                rect = None
-            lines.append((text, rect))
+                t = (getattr(ln, "text", "") or "").strip()
+                if t:
+                    words.append((t, 0, len(words) * 20, 10, 12))
+        if not words:
+            return []
+        words.sort(key=lambda w: w[2] + w[4] / 2)
+        rows = []  # [cy, h, [words]]
+        for w in words:
+            cy = w[2] + w[4] / 2
+            if rows and abs(cy - rows[-1][0]) <= max(rows[-1][1], w[4]) * 0.5:
+                row = rows[-1]
+                row[2].append(w)
+                row[0] = sum(x[2] + x[4] / 2 for x in row[2]) / len(row[2])
+                row[1] = max(row[1], w[4])
+            else:
+                rows.append([cy, w[4], [w]])
+        lines = []
+        for _cy, _h, ws in rows:
+            ws.sort(key=lambda w: w[1])
+            text = " ".join(w[0] for w in ws)
+            x0 = min(w[1] for w in ws); y0 = min(w[2] for w in ws)
+            x1 = max(w[1] + w[3] for w in ws); y1 = max(w[2] + w[4] for w in ws)
+            lines.append((text, (int(x0), int(y0), int(x1 - x0), int(y1 - y0))))
         return lines
 
     def _ko_supported(self):
@@ -698,6 +717,30 @@ class AITranslator:
             raise ValueError("AI 응답 형식 오류")
         return [polish_ai(out[i + 1]) if out.get(i + 1) else None for i in range(n)]
 
+    _hints = None
+
+    @classmethod
+    def glossary_hints(cls, text):
+        """이번 채팅에 나온 용어만 골라서 AI에게 '공식 한국어 이름'으로 알려줌."""
+        if cls._hints is None:
+            try:
+                with open(GLOSSARY_PATH, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                h = {}
+                for sec in ("terms", "names"):
+                    for k, v in (d.get(sec) or {}).items():
+                        if not k.startswith("_") and len(k) >= 4:
+                            h[k.lower()] = v
+                cls._hints = h
+            except Exception:  # noqa: BLE001
+                cls._hints = {}
+        low = text.lower()
+        return [f"{k} = {v}" for k, v in cls._hints.items() if k in low][:40]
+
+    def _hint_block(self, payload):
+        hints = self.glossary_hints(payload)
+        return ("\n\n이번 채팅에 나온 용어의 한국 메이플 공식 이름 (꼭 이대로 써):\n" + "\n".join(hints)) if hints else ""
+
     def translate_batch(self, msgs):
         payload = "\n".join(f"{i + 1}|{m.replace(chr(10), ' ')}" for i, m in enumerate(msgs))
         if self.engine == "claude_cli":
@@ -705,7 +748,7 @@ class AITranslator:
             flags = 0x08000000 if os.name == "nt" else 0  # 콘솔 창 안 띄우기
             proc = subprocess.run(
                 [self.cli_path, "-p", "--model", self.cli_model],
-                input=AI_PROMPT + "\n\n이번 입력:\n" + payload, capture_output=True, text=True, encoding="utf-8",
+                input=AI_PROMPT + self._hint_block(payload) + "\n\n이번 입력:\n" + payload, capture_output=True, text=True, encoding="utf-8",
                 errors="replace", timeout=90, creationflags=flags)
             if proc.returncode != 0:
                 dlog("AI-ERR", proc.returncode, proc.stderr[:300], proc.stdout[:300])
@@ -719,7 +762,7 @@ class AITranslator:
                 "https://api.anthropic.com/v1/messages", timeout=30,
                 headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
-                json={"model": self.api_model, "max_tokens": 2000, "system": AI_PROMPT,
+                json={"model": self.api_model, "max_tokens": 2000, "system": AI_PROMPT + self._hint_block(payload),
                       "messages": [{"role": "user", "content": payload}]})
             if r.status_code != 200:
                 raise RuntimeError(f"API {r.status_code}: {r.text[:120]}")

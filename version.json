@@ -1,5 +1,1 @@
-{
-  "version": 2,
-  "note": "한국어 채팅 → 외국어 번역 보내기 기능",
-  "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]
-}
+{"version": 3, "note": "채팅 줄이 조각나던 문제 수정(일반챗 누락 개선), 아이템 공식 이름 AI 반영, 표시 줄 수 25", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
