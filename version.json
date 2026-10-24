@@ -1,1 +1,1 @@
-{"version": 10, "note": "pmo/obo 등 가격 제시 줄임말 항상 한국어로", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 11, "note": "CH 배지를 색으로 찾아서 닉네임/채널/대화 정확히 분리, KS> 오인식 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

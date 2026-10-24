@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 10  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 11  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -352,7 +352,7 @@ BADGE_RE = re.compile(r"\s*(?<![A-Za-z])[CcGg][Hh]\s*([0-9OoZzSsIlB]{1,2})(?![A-
 
 def _clean_name(part):
     """닉네임은 번역하지 않고 인식된 그대로 사용 (앞뒤 기호만 정리)."""
-    raw = CHANNEL_RE.sub("", part).strip(" \t:;：@®©*·•|")
+    raw = CHANNEL_RE.sub("", part).strip(" \t:;：@®©*·•|'\"`\\/.,()[]{}<>~")
     return raw or None
 
 
@@ -366,6 +366,9 @@ def parse_line(raw):
     형식 2) 닉네임 : 대화           (일반/파티)
     배지는 있는데 대화가 없으면 ('닉네임', '', 채널) -> 다음 줄에 대화가 이어짐."""
     line = raw.strip()
+    if "\x01" in line:  # 배지 위치로 이미 나눠진 줄
+        name, ch, msg = (line.split("\x01") + ["", ""])[:3]
+        return (_clean_name(name) or None), msg.strip(), (ch or None)
     line = re.sub(r"(?:(?<=\s)|^)[Il|!1\[(]([CcGg][Hh]\s*[0-9OoZzSsIlB]{1,2})", r"\1", line)  # 배지 테두리 찌꺼기
     badge = BADGE_RE.search(line)
     if badge and badge.start() <= 26:
@@ -385,6 +388,8 @@ def parse_line(raw):
         return None, line, None
     name = _clean_name(m.group(1))
     msg = m.group(2).strip()
+    if name and (len(name.split()) > 2 or re.search(r"[!?,.]", name)):
+        return None, line, None  # "ate! Congrats! : ..." 같은 건 닉네임이 아님
     return (name, msg, None) if name else (None, msg, None)
 
 
@@ -474,8 +479,125 @@ class ScreenOCR:
             text = " ".join(w[0] for w in ws)
             x0 = min(w[1] for w in ws); y0 = min(w[2] for w in ws)
             x1 = max(w[1] + w[3] for w in ws); y1 = max(w[2] + w[4] for w in ws)
-            lines.append((text, (int(x0), int(y0), int(x1 - x0), int(y1 - y0))))
+            lines.append((text, (int(x0), int(y0), int(x1 - x0), int(y1 - y0)), ws))
         return lines
+
+    # --- CH 배지(빨간 글씨 알약 모양) 위치를 색으로 찾아서 닉네임/대화를 정확히 나눔 ---
+    @staticmethod
+    def _is_badge_red(p):
+        return p[0] > 140 and p[1] < 45 and p[2] < 45
+
+    def _find_badge(self, rect):
+        """줄 안에서 빨간 CH 글씨 덩어리의 x 범위 (원본 좌표). 없으면 None."""
+        img = self._orig
+        px = img.load()
+        x, y, w, h = rect
+        y0, y1 = max(0, y), min(img.height, y + h)
+        x0, x1 = 0, img.width  # 줄 전체 폭 (OCR이 배지를 아예 못 읽었어도 찾을 수 있게)
+        cols = []
+        for cx in range(x0, x1):
+            if any(self._is_badge_red(px[cx, cy]) for cy in range(y0, y1)):
+                cols.append(cx)
+        if not cols:
+            return None
+        groups, start, prev = [], cols[0], cols[0]
+        for c in cols[1:]:
+            if c - prev > 3:
+                groups.append((start, prev))
+                start = c
+            prev = c
+        groups.append((start, prev))
+        for g0, g1 in groups:
+            width = g1 - g0 + 1
+            if 6 <= width <= max(45, h * 3):
+                # 배지 = 빨간 글씨 앞 여백 + 글씨 + 귀 아이콘
+                return g0 - 3, g1 + int(width * 0.9) + 3, (g0, g1)
+        return None
+
+    def _apply_badges(self, img, lines):
+        """배지가 있는 줄을 '닉네임 \x01채널\x01 대화' 형태로 다시 조립."""
+        out, badges = [], []
+        for text, rect, ws in lines:
+            found = None
+            try:
+                found = self._find_badge(rect) if ws else None
+            except Exception:  # noqa: BLE001
+                found = None
+            if not found:
+                out.append((text, rect, ws))
+                continue
+            b0, b1, red = found
+            name_parts, msg_parts = [], []
+            for t, wx, _wy, ww, _wh in ws:
+                if wx + ww <= b0 + 2:
+                    name_parts.append(t)
+                elif wx >= b1 - 2:
+                    msg_parts.append(t)
+                elif wx < b0:  # 닉네임과 배지가 한 단어로 붙어서 읽힌 경우: 글자 비율로 자르기
+                    keep = int(len(t) * (b0 - wx) / max(1, ww))
+                    if keep > 0:
+                        name_parts.append(t[:keep])
+                elif wx + ww > b1:
+                    cut = int(len(t) * (b1 - wx) / max(1, ww))
+                    if t[cut:].strip():
+                        msg_parts.append(t[cut:])
+            msg = " ".join(msg_parts).strip()
+            msg = re.sub(r"^.{0,6}?[:：;]\s*", "", msg)            # 배지 뒤 콜론까지 (귀 아이콘 찌꺼기 포함) 제거
+            msg = re.sub(r"^[|!\\/()\[\]{}<>.,'`~]+\s*", "", msg)  # 앞에 남은 기호 찌꺼기
+            msg = re.sub(r"^\S{1,2}\s+(?=[SBTL]\s?>)", "", msg).strip()
+            badges.append((len(out), red, rect))
+            out.append([" ".join(name_parts).strip(), rect, ws, msg])
+        # 배지 글씨(채널 번호)는 따로 모아서 한 번에 OCR
+        chans = self._read_channels([(red, rect) for _i, red, rect in badges]) if badges else []
+        for (idx, _red, _rect), ch in zip(badges, chans):
+            name, rect, ws, msg = out[idx]
+            out[idx] = (f"{name}\x01{ch}\x01{msg}", rect, ws)
+        return out
+
+    def _read_channels(self, items):
+        from PIL import Image
+        try:
+            scale = 4
+            crops = []
+            for (g0, g1), (x, y, w, h) in items:
+                c = self._orig.crop((max(0, g0 - 2), max(0, y), g1 + 3, y + h))
+                px = c.load()
+                for cx in range(c.width):
+                    for cy in range(c.height):
+                        px[cx, cy] = (0, 0, 0) if self._is_badge_red(px[cx, cy]) else (255, 255, 255)
+                crops.append(c.resize((c.width * scale, c.height * scale), Image.NEAREST))
+            gap = 12
+            W = max(c.width for c in crops) + 20
+            H = sum(c.height + gap for c in crops) + gap
+            sheet = Image.new("RGB", (W, H), (255, 255, 255))
+            ys, yy = [], gap
+            for c in crops:
+                sheet.paste(c, (10, yy))
+                ys.append((yy, yy + c.height))
+                yy += c.height + gap
+            import asyncio
+            import winocr
+            res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(sheet, "en")))
+            got = ["" for _ in crops]
+            for ln in getattr(res, "lines", None) or []:
+                for w in ln.words:
+                    cy = w.bounding_rect.y + w.bounding_rect.height / 2
+                    for i, (a, b) in enumerate(ys):
+                        if a - gap / 2 <= cy <= b + gap / 2:
+                            got[i] += w.text
+            out = []
+            for t in got:
+                t = re.sub(r"[^A-Za-z0-9]", "", t)
+                t = re.sub(r"^[CcGg]?[Hh]", "", t)
+                digits = t.translate(_CH_FIX).replace("g", "9").replace("q", "9")
+                digits = re.sub(r"\D", "", digits)[-2:]
+                m = re.match(r"(\d{1,2})$", digits)
+                out.append("CH" + m.group(1).zfill(2) if m else "")
+            dlog("BADGE", got, out)
+            return out
+        except Exception as e:  # noqa: BLE001
+            dlog("BADGE-ERR", repr(e))
+            return ["" for _ in items]
 
     def _ko_supported(self):
         if self._ko is None:
@@ -500,14 +622,15 @@ class ScreenOCR:
                 ko = self._ocr(img, "ko")
             except Exception:  # noqa: BLE001
                 ko = []
-        dlog("OCR-EN", [t for t, _r in en])
-        dlog("OCR-KO", [t for t, _r in ko])
+        dlog("OCR-EN", [t[0] for t in en])
+        dlog("OCR-KO", [t[0] for t in ko])
+        en = self._apply_badges(img, en)
         out = []
-        for text, rect in en:
+        for text, rect, _ws in en:
             items = []
             if rect and ko:
                 cy = rect[1] + rect[3] / 2
-                for ktext, krect in ko:
+                for ktext, krect, _kw in ko:
                     if not krect:
                         continue
                     kcy = krect[1] + krect[3] / 2
@@ -545,6 +668,9 @@ _TRADE_MAP = {"5": "S", "$": "S", "8": "B"}
 
 
 def normalize_trade(msg):
+    # ": S>" 의 콜론을 K/I 로 읽어서 "KS>" "IS>" 가 되는 경우
+    msg = re.sub(r"(?:(?<=\s)|^)[KkIl|:;.][SB]\s*>", lambda m: m.group(0)[1:], msg)
+
     def fix(m):
         before = msg[:m.start()]
         if ">" not in m.group(0) and before.count("(") > before.count(")"):
