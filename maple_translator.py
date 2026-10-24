@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 14  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 15  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1269,7 +1269,14 @@ def run_app():
     bar.pack(fill="x")
     status = tk.Label(bar, text="F9: 채팅창 영역 선택 → F8: 시작", fg="#9aa3b5",
                       bg="#20232c", font=("Malgun Gothic", 9))
-    status.pack(side="left", padx=8, pady=4)
+    # 맨 왼쪽: 켜기/끄기 큰 버튼 (창이 좁아도 안 잘리게 제일 먼저 배치)
+    power_btn = tk.Button(bar, text="▶ 켜기", bg="#2f9e44", fg="white", activebackground="#40c057",
+                          activeforeground="white", bd=0, font=("Malgun Gothic", 10, "bold"),
+                          padx=12, pady=2, cursor="hand2")
+    power_btn.pack(side="left", padx=(6, 2), pady=3)
+    status.pack(side="left", padx=6, pady=4)
+    status.configure(cursor="hand2")
+    status.bind("<Button-1>", lambda e: toggle())
 
     def btn(text, cmd):
         b = tk.Button(bar, text=text, command=cmd, bg="#2d3240", fg="#e8ecf4",
@@ -1730,14 +1737,14 @@ def run_app():
             info("먼저 F9(영역 선택)로 채팅창을 지정하세요.", "err")
             return
         state["running"] = True
-        start_btn.configure(text="■ 정지")
+        power_btn.configure(text="■ 끄기", bg="#c92a2a", activebackground="#e03131")
         status.configure(text="번역 중…  (F8 정지)", fg="#7ee08a")
         state["worker"] = threading.Thread(target=worker, daemon=True)
         state["worker"].start()
 
     def stop():
         state["running"] = False
-        start_btn.configure(text="▶ 시작")
+        power_btn.configure(text="▶ 켜기", bg="#2f9e44", activebackground="#40c057")
         status.configure(text="정지됨  (F8 시작, F9 영역)", fg="#9aa3b5")
 
     def toggle():
@@ -1774,9 +1781,9 @@ def run_app():
              else f"AI 번역 다시 켬 (이번 실행 AI 호출 {AITranslator.calls}회)")
     if ai.enabled:
         ai_btn = btn("AI 꺼짐" if cfg.get("ai_paused") else "AI 켜짐", toggle_ai)
-    btn("사전 새로고침", reload_glossary)
+    btn("사전", reload_glossary)
     btn("영역(F9)", select_region)
-    start_btn = btn("▶ 시작", toggle)
+    power_btn.configure(command=toggle)
 
     root.bind("<F8>", lambda e: toggle())
     root.bind("<F9>", lambda e: select_region())
