@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 3  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 4  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -347,6 +347,9 @@ def parse_line(raw):
             return name, rest, ch
     m = LINE_RE.match(line)
     if not m:
+        m2 = re.match(r"^\s*([^:：;\s][^:：;]{0,30}?)\s*[:：;]\s*$", line)
+        if m2 and _clean_name(m2.group(1)) and len(m2.group(1).split()) <= 2:
+            return _clean_name(m2.group(1)), "", None  # 닉네임만 있고 대화는 다음 줄
         return None, line, None
     name = _clean_name(m.group(1))
     msg = m.group(2).strip()
@@ -553,6 +556,18 @@ TEXT_KINDS = [
 ]
 KIND_COLORS = {k: c for k, _, c in BG_KINDS + TEXT_KINDS}
 KIND_COLORS["일반"] = "#d0d6e2"
+
+
+# 보기 탭: 이름 -> 보여줄 종류 (None = 전부)
+VIEW_TABS = {
+    "전체": None,
+    "일반": {"일반"},
+    "파티": {"파티"},
+    "고확": {"고확"},
+    "특확": {"특확"},
+    "확성기": {"확성기", "고확", "특확"},
+    "귓속말": {"귓속말"},
+}
 
 
 def _dist(a, b):
@@ -911,6 +926,26 @@ def run_app():
         b.pack(side="right", padx=3, pady=3)
         return b
 
+    tabs = tk.Frame(root, bg="#181b22")
+    tabs.pack(fill="x")
+    view_var = tk.StringVar(value=cfg.get("view_tab", "전체") if cfg.get("view_tab") in VIEW_TABS else "전체")
+    tab_btns = {}
+
+    def set_view(name):
+        view_var.set(name)
+        cfg["view_tab"] = name
+        for n, b in tab_btns.items():
+            on = n == name
+            b.configure(bg="#3b6ef5" if on else "#2d3240", fg="white" if on else "#c9cfdb")
+        render()
+
+    for _name in VIEW_TABS:
+        _b = tk.Button(tabs, text=_name, command=lambda n=_name: set_view(n), bd=0,
+                       bg="#2d3240", fg="#c9cfdb", activebackground="#5a86ff", activeforeground="white",
+                       font=("Malgun Gothic", 9), padx=7, pady=1)
+        _b.pack(side="left", padx=2, pady=3)
+        tab_btns[_name] = _b
+
     body = tk.Text(root, bg="#14161c", fg="#e8ecf4", bd=0, wrap="word",
                    font=("Malgun Gothic", cfg["font_size"]), padx=10, pady=8)
     # --- 내 채팅 보내기 (한국어 -> 외국어) -----------------------------------
@@ -960,7 +995,7 @@ def run_app():
                 root.after(0, lambda: (seq == send_state["seq"]) and (
                     copy_text(quick), show_send(quick, "▶ 빠른 번역 복사됨 · AI가 다듬는 중…", "#e8ecf4")))
             except Exception as e:  # noqa: BLE001
-                root.after(0, lambda: show_send(raw, f"빠른 번역 실패: {e}", "#ff7b7b"))
+                root.after(0, lambda err=str(e): show_send(raw, f"빠른 번역 실패: {err}", "#ff7b7b"))
             if ai.enabled:
                 try:
                     better = prefix + ai_outbound(ai, body_text, label)
@@ -984,6 +1019,7 @@ def run_app():
     body.tag_configure("info", foreground="#7fb4ff")
     body.tag_configure("msg", foreground="#ffffff", lmargin1=0, lmargin2=28)
     body.tag_configure("gap", font=("Malgun Gothic", 3))
+    body.tag_configure("chan", foreground="#8f98ab", font=("Segoe UI", max(8, cfg["font_size"] - 2)))
     body.tag_configure("err", foreground="#ff7b7b")
     for _k, _c in KIND_COLORS.items():
         body.tag_configure("k_" + _k, foreground=_c, font=("Malgun Gothic", max(8, cfg["font_size"] - 1), "bold"))
@@ -994,7 +1030,6 @@ def run_app():
     name_tags = []
 
     def copy_name(name, whisper):
-        name = name.split(" · ")[0]  # 채널 표시는 빼고 닉네임만
         text = f"/w {name} " if whisper else name
         root.clipboard_clear()
         root.clipboard_append(text)
@@ -1010,8 +1045,11 @@ def run_app():
             body.tag_delete(t)
         name_tags.clear()
         hidden = set(cfg.get("hide_kinds") or [])
-        shown = [e for e in entries if not (e[4] and e[4] in hidden)]
-        for name, tr, orig, tag, kind, _eid, is_ai in shown[-cfg["max_lines"]:]:
+        view = view_var.get()
+        allowed = VIEW_TABS.get(view)
+        shown = [e for e in entries if not (e[4] and e[4] in hidden)
+                 and (allowed is None or (not e[3] and (e[4] or "일반") in allowed))]
+        for name, tr, orig, tag, kind, _eid, is_ai, ch in shown[-cfg["max_lines"]:]:
             if tag:
                 body.insert("end", tr + "\n", tag)
                 continue
@@ -1021,11 +1059,13 @@ def run_app():
             if name:
                 ntag = f"nm_{len(name_tags)}"
                 name_tags.append(ntag)
-                body.insert("end", name, ("name", ntag))
+                body.insert("end", f"[{name}]", ("name", ntag))
                 body.tag_bind(ntag, "<Button-1>", lambda e, n=name: copy_name(n, whisper=False))
                 body.tag_bind(ntag, "<Button-3>", lambda e, n=name: copy_name(n, whisper=True))
                 body.tag_bind(ntag, "<Enter>", lambda e: body.configure(cursor="hand2"))
                 body.tag_bind(ntag, "<Leave>", lambda e: body.configure(cursor=""))
+                if ch:
+                    body.insert("end", "  " + ch, "chan")
                 body.insert("end", "\n")
             # 닉네임이 없는 줄 = 앞 채팅이 길어서 줄바꿈된 부분 -> 내용만 표시
             # 2줄: 번역된 대화 내용
@@ -1038,7 +1078,7 @@ def run_app():
         body.see("end")
 
     def info(msg, tag="info"):
-        entries.append([None, msg, None, tag, None, 0, False])
+        entries.append([None, msg, None, tag, None, 0, False, None])
         render()
 
     # --- 영역 선택 ---------------------------------------------------------
@@ -1101,31 +1141,30 @@ def run_app():
                         continue
                     name, msg, ch = parse_line(raw)
                     if name and not msg.strip():
-                        pending[0] = (name, ch)  # 닉네임만 읽힌 줄 -> 다음 줄이 대화
+                        pending[0] = (name, ch, items)  # 닉네임만 읽힌 줄 -> 다음 줄이 대화
                         continue
                     if not name and pending[0]:
-                        name, ch = pending[0]
+                        name, ch, p_items = pending[0]
+                        items = list(p_items) + [i for i in items if i not in p_items]
                     pending[0] = None
-                    if name and ch:
-                        name = f"{name} · {ch}"
                     msg = normalize_trade(merge_item_links(msg, items))
                     kind = classify_line(ocr.last_img, rect)
                     if len(re.findall(r"[A-Za-z가-힣]", msg)) < 3:
                         continue  # OCR 찌꺼기
-                    if name and cfg.get("my_name") and name.split(" · ")[0].lower() == cfg["my_name"].lower():
-                        out_q.put((name, msg, msg, None, kind, next_id()))
+                    if name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower():
+                        out_q.put((name, msg, msg, None, kind, next_id(), ch))
                         continue
                     plain = re.sub(r"\[[^\]]*\]", "", msg)
                     if cfg["skip_korean_lines"] and plain.strip() and len(HANGUL_RE.findall(plain)) > len(plain) * 0.3:
-                        out_q.put((name, msg, msg, None, kind, next_id()))
+                        out_q.put((name, msg, msg, None, kind, next_id(), ch))
                         continue
                     protected, slots = glossary.protect(msg)
-                    batch.append((name, msg, protected, slots, kind))
+                    batch.append((name, msg, protected, slots, kind, ch))
                 if batch:
                     translated, err = translator.translate_many([b[2] for b in batch])
-                    for (name, msg, _p, slots, kind), tr in zip(batch, translated):
+                    for (name, msg, _p, slots, kind, ch), tr in zip(batch, translated):
                         eid = next_id()
-                        out_q.put((name, glossary.restore(tr, slots), msg, None, kind, eid))
+                        out_q.put((name, glossary.restore(tr, slots), msg, None, kind, eid, ch))
                         if ai.enabled:
                             ai_q.put((eid, msg))
                     if err and err != state.get("last_err"):
@@ -1179,7 +1218,7 @@ def run_app():
                         e[1], e[6] = item[2], True
                         break
             else:
-                entries.append(list(item) + [False])
+                entries.append(list(item[:6]) + [False, item[6] if len(item) > 6 else None])
             changed = True
         if len(entries) > 200:
             del entries[:-200]
@@ -1248,6 +1287,7 @@ def run_app():
     except Exception:  # noqa: BLE001
         info("전역 단축키를 못 켰어요. 오버레이 버튼을 쓰거나 관리자 권한으로 실행하세요.", "err")
 
+    set_view(view_var.get())
     info("성윤님 반가워요! 오버레이는 채팅창과 안 겹치는 곳에 두세요.")
     if ai.enabled:
         info("AI 번역 켜짐: ▶ 구글 번역이 먼저 뜨고, 잠시 뒤 ✦ 자연스러운 한국어로 바뀌어요.")

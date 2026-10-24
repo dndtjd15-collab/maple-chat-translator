@@ -1,1 +1,1 @@
-{"version": 3, "note": "채팅 줄이 조각나던 문제 수정(일반챗 누락 개선), 아이템 공식 이름 AI 반영, 표시 줄 수 25", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 4, "note": "보기 탭(전체/일반/파티/고확/특확/확성기/귓속말), [닉네임]과 채널 분리, '닉네임 :' 만 있는 줄 인식", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
