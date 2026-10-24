@@ -1,1 +1,1 @@
-{"version": 11, "note": "CH 배지를 색으로 찾아서 닉네임/채널/대화 정확히 분리, KS> 오인식 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 12, "note": "채팅 순서 꼬임 수정 (화면 순서대로 표시, 옛 줄 재등장 방지)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

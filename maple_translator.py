@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 11  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 12  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -401,6 +401,29 @@ class SeenLines:
     def __init__(self, size=300):
         self.items = []
         self.size = size
+
+    def seen(self, line):
+        """이미 본 줄인지만 확인 (기록은 안 함)."""
+        key = normalize(line)
+        if len(key) < 3:
+            return True
+        for old in reversed(self.items[-80:]):
+            if old == key or SequenceMatcher(None, old, key).ratio() > 0.88:
+                return True
+        return False
+
+    def new_lines(self, lines):
+        """채팅은 항상 아래에 새로 붙으니까, 화면에서 '이미 본 마지막 줄' 아래만 새 줄로 인정.
+        (위쪽 줄을 OCR이 조금 다르게 읽어서 옛날 채팅이 뒤늦게 다시 뜨는 순서 꼬임 방지)"""
+        flags = [self.seen(raw) for raw in lines]
+        last = max((i for i, f in enumerate(flags) if f), default=-1)
+        out = []
+        for i, raw in enumerate(lines):
+            if not flags[i]:
+                self.is_new(raw)  # 기록
+                if i > last:
+                    out.append(i)
+        return out
 
     def is_new(self, line):
         key = normalize(line)
@@ -1333,8 +1356,10 @@ def run_app():
             try:
                 lines = ocr.read_lines(cfg["region"])
                 batch = []  # (name, msg, protected, slots)
-                for raw, rect, items in lines:
-                    if not seen.is_new(raw):
+                ordered = []  # 화면 순서 그대로 내보내기: ("now", 항목) 또는 ("tr", batch 번호)
+                fresh = set(seen.new_lines([raw for raw, _r, _i in lines]))
+                for idx, (raw, rect, items) in enumerate(lines):
+                    if idx not in fresh:
                         continue
                     name, msg, ch = parse_line(raw)
                     if name and not msg.strip():
@@ -1351,21 +1376,30 @@ def run_app():
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower():
-                        out_q.put((name, msg, msg, None, kind, next_id(), ch))
+                        ordered.append(("now", (name, msg, msg, None, kind, ch)))
                         continue
                     plain = re.sub(r"\[[^\]]*\]", "", msg)
                     if cfg["skip_korean_lines"] and plain.strip() and len(HANGUL_RE.findall(plain)) > len(plain) * 0.3:
-                        out_q.put((name, msg, msg, None, kind, next_id(), ch))
+                        ordered.append(("now", (name, msg, msg, None, kind, ch)))
                         continue
                     protected, slots = glossary.protect(msg)
+                    ordered.append(("tr", len(batch)))
                     batch.append((name, msg, protected, slots, kind, ch))
+                err = None
+                translated = []
                 if batch:
                     translated, err = translator.translate_many([b[2] for b in batch])
-                    for (name, msg, _p, slots, kind, ch), tr in zip(batch, translated):
-                        eid = next_id()
-                        out_q.put((name, glossary.restore(tr, slots), msg, None, kind, eid, ch))
+                for how, val in ordered:
+                    eid = next_id()
+                    if how == "now":
+                        name, tr, msg, tag, kind, ch = val
+                        out_q.put((name, tr, msg, tag, kind, eid, ch))
+                    else:
+                        name, msg, _p, slots, kind, ch = batch[val]
+                        out_q.put((name, glossary.restore(translated[val], slots), msg, None, kind, eid, ch))
                         if ai.enabled:
                             ai_q.put((eid, msg))
+                if batch:
                     if err and err != state.get("last_err"):
                         out_q.put((None, err, None, "err", None, 0))
                     state["last_err"] = err
