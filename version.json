@@ -1,1 +1,1 @@
-{"version": 15, "note": "맨 왼쪽에 켜기/끄기 버튼 (창이 좁아도 안 잘림)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 16, "note": "껐다 켤 때 화면 캡처 오류(BitBlt) 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

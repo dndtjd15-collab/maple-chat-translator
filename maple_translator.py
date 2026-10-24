@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 15  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 16  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -453,11 +453,24 @@ class ScreenOCR:
     def grab(self, region):
         import mss
         from PIL import Image
-        if self._mss is None:
-            self._mss = mss.mss()
         left, top, width, height = region
-        shot = self._mss.grab({"left": left, "top": top, "width": width, "height": height})
-        img = Image.frombytes("RGB", shot.size, shot.rgb)
+        # mss 는 만든 스레드에서만 동작함 (끄고 다시 켜면 스레드가 바뀌어 BitBlt 오류) -> 스레드마다 새로 만듦
+        tid = threading.get_ident()
+        img = None
+        for _ in range(2):
+            try:
+                if self._mss is None or getattr(self, "_mss_tid", None) != tid:
+                    self._mss = mss.mss()
+                    self._mss_tid = tid
+                shot = self._mss.grab({"left": left, "top": top, "width": width, "height": height})
+                img = Image.frombytes("RGB", shot.size, shot.rgb)
+                break
+            except Exception as e:  # noqa: BLE001
+                dlog("GRAB-ERR", repr(e))
+                self._mss = None
+        if img is None:  # 그래도 안 되면 Pillow 캡처로 대신
+            from PIL import ImageGrab
+            img = ImageGrab.grab(bbox=(left, top, left + width, top + height), all_screens=True).convert("RGB")
         self._orig = img
         if self.upscale and self.upscale != 1:
             img = img.resize((int(img.width * self.upscale), int(img.height * self.upscale)),
