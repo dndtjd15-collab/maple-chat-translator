@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 9  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 10  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -690,6 +690,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
   필리핀(타갈로그): po=요, pre/pare=형, tara=가자, sige=ㅇㅋ, salamat=고마워.
   베트남어: ae=형들/다들, dc=됨, ko/k=안 돼/아니, mn=다들.
 - OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측한 뒤 그걸 한국어로 번역하고, 앞에 (추정)을 붙여. 영어를 그대로 출력하지 마.
+- 거래 줄임말은 절대 영어로 남기지 마: pmo/PMO = "가격 제시 귓 주세요", obo = "가격 제시 받아요", pm = "귓 주세요", c/o = 현재 최고가, a/w = 즉시 낙찰가.
 - OCR이 철자를 깨뜨린 단어는 메이플 거래 문맥으로 원래 단어를 추측해서 번역해 (확실할 때만).
   예) "parrina"/"earrina"/"earing" → earring(귀고리), "f 7."/"6O%"/"6o%" 가 주문서 자리에 있으면 60%, "thesp" → these, "lnt"/"1nt" → INT
   예) "thesp + 3 parrina f 7. Int for 400k, PM" → [팝니다] 이거 +3 귀지력 60% 3개 40만, 귓 주세요
@@ -721,6 +722,12 @@ TRADE_FIX = [
     (re.compile(r"(?<![A-Za-z])L\s*>\s*", re.I), "[구해요] "),
     (re.compile(r"\bWTS\b", re.I), "[팝니다]"),
     (re.compile(r"\bWTB\b", re.I), "[삽니다]"),
+    # AI가 영어 그대로 남긴 가격 관련 줄임말
+    (re.compile(r"(?<![A-Za-z])p\.?\s?m\.?\s?[o0]\.?(?:'?s)?(?![A-Za-z])", re.I), "가격 제시 귓 주세요"),
+    (re.compile(r"(?<![A-Za-z])o\.?b\.?o\.?(?![A-Za-z])", re.I), "가격 제시 받아요"),
+    (re.compile(r"(?<![A-Za-z])c/o(?![A-Za-z])", re.I), "현재 최고가"),
+    (re.compile(r"(?<![A-Za-z])a/w(?![A-Za-z])", re.I), "즉시 낙찰가"),
+    (re.compile(r"(?<![A-Za-z])pm\s?me(?![A-Za-z])", re.I), "귓 주세요"),
 ]
 
 

@@ -1,1 +1,1 @@
-{"version": 9, "note": "ICH19 배지 인식, OCR 철자 깨짐 AI 보정, PM=귓 주세요, Int/Dex 등 용어", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 10, "note": "pmo/obo 등 가격 제시 줄임말 항상 한국어로", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
