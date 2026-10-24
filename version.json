@@ -1,1 +1,1 @@
-{"version": 4, "note": "보기 탭(전체/일반/파티/고확/특확/확성기/귓속말), [닉네임]과 채널 분리, '닉네임 :' 만 있는 줄 인식", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 5, "note": "[아이템] 링크: 한글은 그대로, 영어 부분만 번역", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

@@ -1,6 +1,5 @@
 {
   "_설명": "메이플 채팅 번역 용어 사전. expand = 번역 전에 풀어쓸 영어 줄임말(대소문자 무시). terms = 번역기에 안 넘기고 그대로 한국어로 박아 넣을 용어(대소문자 무시). terms_case = 대문자일 때만 바꿀 용어. 줄을 추가/수정하고 오버레이의 [사전 새로고침]을 누르면 바로 적용돼요.",
-
   "expand": {
     "gz": "congratulations",
     "grats": "congratulations",
@@ -80,7 +79,6 @@
     "tyfi": "thanks for the invite",
     "ty4p": "thanks for the party"
   },
-
   "terms": {
     "S>": "[팝니다]",
     "wts": "[팝니다]",
@@ -270,9 +268,27 @@
     "magic claw": "매직 클로",
     "heal": "힐",
     "haste": "헤이스트",
-    "booster": "부스터"
+    "booster": "부스터",
+    "emerald": "에메랄드",
+    "emerald earrings": "에메랄드 귀고리",
+    "emerald earring": "에메랄드 귀고리",
+    "aquamarine": "아쿠아마린",
+    "amethyst": "자수정",
+    "opal": "오팔",
+    "gold": "골드",
+    "silver": "실버",
+    "blue shark": "블루 샤크",
+    "attack": "공격력",
+    "mtack": "공격력",
+    "magic attack": "마력",
+    "for magic att": "마력",
+    "intermediate": "중급",
+    "advanced": "상급",
+    "basic": "초급",
+    "cheap": "싸게",
+    "scroll for": "주문서",
+    "work gloves": "목장갑"
   },
-
   "terms_case": {
     "MA": "마력",
     "ATT": "공격력",
@@ -291,7 +307,6 @@
     "F/P": "불독",
     "DK": "다크나이트"
   },
-
   "names": {
     "_설명": "직업·별명처럼 번역기가 엉뚱하게 바꾸는 단어. 소문자로 적고 한국어 뜻을 쓰세요.",
     "sin": "어쌔신",

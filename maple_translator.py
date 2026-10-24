@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 4  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 5  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -126,8 +126,34 @@ class Glossary:
             slots.append(korean)
             return f" ZZ{len(slots) - 1}QQ "
 
-        # 1) 대괄호 아이템 링크 [페어리 완드] 는 그대로 보존
-        text = re.sub(r"\[[^\]]{1,40}\]", lambda m: hold(m.group(0)), text)
+        # 1) 대괄호 아이템 링크: 한글은 그대로, 영어 부분만 번역
+        #    [에메랄드 귀고리] -> 그대로 / [Emerald Earrings] -> [에메랄드 귀고리]
+        #    [장갑 Attack 주문서] -> 한글 유지 + Attack 만 번역
+        def bracket(m):
+            inner = m.group(1)
+            if not re.search(r"[A-Za-z]", inner):
+                return hold(m.group(0))  # 한글/숫자만 -> 통째로 보존
+            out = []
+            for part in re.split(r"([A-Za-z][A-Za-z'./ -]*[A-Za-z]|[A-Za-z])", inner):
+                if not part:
+                    continue
+                if re.fullmatch(r"[A-Za-z][A-Za-z'./ -]*", part):
+                    key = re.sub(r"\s+", " ", part.strip()).lower()
+                    if key in self._lower_terms:
+                        out.append(hold(self._lower_terms[key]))
+                    elif part.strip() in self.terms_case:
+                        out.append(hold(self.terms_case[part.strip()]))
+                    else:
+                        sub = part
+                        if self._terms_re:
+                            sub = self._terms_re.sub(lambda t: hold(self._lower_terms.get(
+                                re.sub(r"\s+", " ", t.group(0)).lower(), t.group(0))), sub)
+                        out.append(sub)  # 남은 영어는 번역기가 번역
+                elif part.strip():
+                    out.append(hold(part.strip()))  # 한글·숫자·기호는 그대로
+            return " [ " + " ".join(out) + " ] "
+
+        text = re.sub(r"\[([^\]]{1,40})\]", bracket, text)
 
         # 2) 메소 금액 500k / 1.2m / 2.5mil / 300 mil -> 50만 / 120만
         def money(m):
@@ -175,6 +201,8 @@ class Glossary:
         missing = [s for i, s in enumerate(slots) if s not in out]
         if missing:
             out = out + "  (" + ", ".join(missing) + ")"
+        out = re.sub(r"\[\s+", "[", out)
+        out = re.sub(r"\s+\]", "]", out)
         return re.sub(r"\s{2,}", " ", out).strip()
 
 
@@ -619,7 +647,10 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
 - 주문서: MA = 마력, att = 공격력, 60% = 60%, 귀 지력 60%(earring INT 60%), 장공 60%(glove att 60%), 장마(glove MA), 완마/스마(wand/staff MA), 전민/전지/전힘/전운(overall DEX/INT/STR/LUK).
 - 줄임말: gz = 축하해, ty = 고마워, tyfp = 파티 고마워, brb = 금방 올게, gtg = 가봐야겠다, afk = 잠수, ks = 겹사, kpq = 커파, pq = 파퀘, fm = 자유시장, ch = 채널, cc = 채널 이동, pots = 물약, leech = 쩔, imo = 내 생각엔, lol/lmao = ㅋㅋ.
 - 직업: sin = 어쌔신, dit/bandit = 시프, I/L = 썬콜, F/P = 불독, cleric = 클레릭, fighter = 파이터, page = 페이지, spearman = 스피어맨, hunter = 헌터, xbow = 사수.
-- 아이템 이름은 한국 메이플 공식 이름을 알면 그 이름으로, 모르면 영어 그대로 둬. [대괄호] 안 아이템 링크는 그대로 유지.
+- 아이템 이름은 한국 메이플 공식 이름을 알면 그 이름으로, 모르면 영어 그대로 둬.
+- [대괄호] 아이템 링크: 대괄호는 유지하고, 안의 한글은 한 글자도 바꾸지 말고 그대로, 영어 부분만 한국 메이플 공식 이름으로 번역해.
+  예) [Emerald Earrings] → [에메랄드 귀고리], [장갑 Attack 주문서] → [장갑 공격력 주문서], [에메랄드 귀고리] → [에메랄드 귀고리]
+- 닉네임은 번역하지 마.
 - 닉네임, 숫자, % , +2 같은 강화 수치는 바꾸지 마.
 - 오타·OCR 깨짐(예: 0과 O 혼동)은 문맥으로 바로잡아서 번역해.
 - 나라별 게이머 은어도 한국 게이머 말로 바꿔:
