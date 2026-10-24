@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 5  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 6  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -626,9 +626,17 @@ def classify_line(img, rect):
     if len(bright) < 5:
         return "일반"
     counts = {kind: sum(1 for p in bright if _dist(p, ref) < 60) for kind, ref, _c in TEXT_KINDS}
+    # 색 계열로도 한 번 더 셈 (글자 가장자리가 흐려져 기준색과 멀어지는 경우 대비)
+    counts["파티"] += sum(1 for p in bright if p[0] > 190 and p[0] - p[1] > 45 and p[2] - p[1] > 15)
+    counts["귓속말"] += sum(1 for p in bright if p[1] > 170 and p[1] - p[0] > 70 and p[1] - p[2] > 70)
+    counts["길드"] += sum(1 for p in bright if p[2] > 190 and p[2] - p[1] > 60 and p[0] - p[1] > 20 and p[0] < 220)
+    counts["친구"] += sum(1 for p in bright if p[0] > 220 and 120 < p[1] < 200 and p[2] < 60)
     kind, cnt = max(counts.items(), key=lambda kv: kv[1])
     white = sum(1 for p in bright if min(p) > 200)
-    if cnt > white and cnt >= 5:
+    if DEBUG[0]:
+        avg = tuple(sum(c[i] for c in bright) // len(bright) for i in range(3))
+        dlog("COLOR", rect, "avg", avg, "white", white, counts)
+    if cnt >= 5 and cnt >= white * 0.6:
         return kind
     return "일반"
 

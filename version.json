@@ -1,1 +1,1 @@
-{"version": 5, "note": "[아이템] 링크: 한글은 그대로, 영어 부분만 번역", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 6, "note": "파티/귓속말/길드 글자색 인식 강화, 색 기록(debug_log)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
