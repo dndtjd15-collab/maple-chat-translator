@@ -1,1 +1,1 @@
-{"version": 53, "note": "경험치 측정 정확도 개선: 퍼센트 기준 계산 + 레벨별 필요 경험치 표 적용 (숫자 오독 무시)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 54, "note": "경험치 측정 줄 간단하게: 사냥터·파티 칸 제거, 한 줄로", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}

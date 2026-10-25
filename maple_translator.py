@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 53  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 54  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1958,20 +1958,11 @@ def run_app():
     exp_bar = tk.Frame(root, bg="#1b2430")
     exp_lbl = tk.Label(exp_bar, text="", fg="#ffd43b", bg="#1b2430", anchor="w", justify="left",
                        font=("Malgun Gothic", 10, "bold"))
-    exp_lbl.pack(side="top", fill="x", padx=8, pady=(3, 0))
     exp_row = tk.Frame(exp_bar, bg="#1b2430")
-    exp_row.pack(side="top", fill="x", padx=4, pady=(1, 3))
-    tk.Label(exp_row, text="사냥터", fg="#9aa3b5", bg="#1b2430", font=("Malgun Gothic", 9)).pack(side="left", padx=(4, 2))
-    exp_map = tk.StringVar(value=cfg.get("exp_map", ""))
-    exp_map_entry = tk.Entry(exp_row, textvariable=exp_map, width=12, bg="#2d3240", fg="white",
-                             insertbackground="white", bd=0, font=("Malgun Gothic", 9))
-    exp_map_entry.pack(side="left", padx=2, ipady=2)
-    tk.Label(exp_row, text="파티", fg="#9aa3b5", bg="#1b2430", font=("Malgun Gothic", 9)).pack(side="left", padx=(6, 2))
-    exp_party = tk.StringVar(value=str(cfg.get("exp_party", "1")))
-    exp_party_box = _ttk.Combobox(exp_row, textvariable=exp_party, values=["1", "2", "3", "4", "5", "6"],
-                                  width=2, state="readonly", font=("Malgun Gothic", 9))
-    exp_party_box.pack(side="left", padx=2)
-
+    exp_row.pack(side="right", padx=4, pady=3)
+    exp_lbl.pack(side="left", fill="x", expand=True, padx=8, pady=3)
+    exp_map = tk.StringVar(value="")      # (예전 사냥터/파티 칸 - 화면에서는 뺐음)
+    exp_party = tk.StringVar(value="")
     def ebtn(text, cmd, color="#2d3240"):
         b = tk.Button(exp_row, text=text, command=cmd, bg=color, fg="white", activebackground="#3b4255",
                       activeforeground="white", bd=0, font=("Malgun Gothic", 9), padx=7, pady=1)
@@ -2012,10 +2003,8 @@ def run_app():
             time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
 
     def exp_begin_segment():
-        exp_state["seg_map"] = exp_map.get().strip() or "(이름 없음)"
-        exp_state["seg_party"] = exp_party.get()
-        cfg["exp_map"], cfg["exp_party"] = exp_map.get().strip(), exp_party.get()
-        save_config(cfg)
+        exp_state["seg_map"] = ""
+        exp_state["seg_party"] = ""
 
     def exp_toggle():
         if exp.running:
@@ -2066,9 +2055,6 @@ def run_app():
         exp_begin_segment()
         info(f"새 측정 시작: {exp_state['seg_map']} / 파티 {exp_state['seg_party']}명")
 
-    exp_map_entry.bind("<Return>", exp_seg_changed)
-    exp_map_entry.bind("<FocusOut>", exp_seg_changed)
-    exp_party_box.bind("<<ComboboxSelected>>", exp_seg_changed)
 
     def exp_open_log():
         if not os.path.exists(EXP_LOG_PATH):
@@ -2082,7 +2068,7 @@ def run_app():
     def exp_update():
         t = exp.total_time()
         if not exp.running and t == 0 and exp.gained_exp() == 0:
-            txt = ("⏱ 경험치 측정: [영역]으로 경험치 숫자를 지정 → [▶ 측정] (F7)" if not cfg.get("exp_region")
+            txt = ("⏱ [영역]으로 경험치 숫자 지정 → [▶ 측정] (F7)" if not cfg.get("exp_region")
                    else "⏱ 경험치 측정 준비됨 → [▶ 측정] 또는 F7")
         else:
             txt = (f"⏱ {fmt_hms(t)}   " + (f"Lv{exp.level}  " if exp.level else "") + f"+{exp.gained_exp():,} ({exp.gained_pct:.2f}%)   "
@@ -2112,7 +2098,6 @@ def run_app():
         cfg["exp_show"] = on
         save_config(cfg)
 
-    ebtn("기록", exp_open_log)
     ebtn("영역", lambda: select_region("exp_region"))
     ebtn("리셋", exp_reset)
     exp_go = ebtn("▶ 측정", exp_toggle, "#2f9e44")
