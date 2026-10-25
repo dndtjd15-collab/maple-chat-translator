@@ -1,1 +1,1 @@
-{"version": 45, "note": "일상 대화 번역 강화: 외국 게이머 슬랭·밈(ngl, lowkey, skill issue, touch grass 등) 70여 개를 한국 게이머 말투로, 말투 세기 유지, (추정) 표시 제거", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 46, "note": "AI 번역 4,295문장에서 영어→한국어 표현 257개를 뽑아 사전에 추가 (AI 꺼도 AI 번역처럼), 10atk/2cr 표기, 월비·토비 OCR 변형", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

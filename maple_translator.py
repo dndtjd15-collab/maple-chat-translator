@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 45  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 46  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -203,9 +203,9 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,3})\s?(sets?)(?![A-Za-z])", lambda m: hold(m.group(1) + "세트"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
-        _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "watk": "공", "ma": "마",
+        _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
                  "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀"}
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|att|acc|crit|cdmg|cd)(?![A-Za-z])",
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|atk|att|acc|crit|cdmg|cd|cr)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
                       lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
