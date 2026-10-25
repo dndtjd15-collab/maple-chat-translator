@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 31  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 32  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +66,10 @@ def load_config():
         cfg["interval_sec"] = DEFAULT_CONFIG["interval_sec"]
     if cfg.get("max_lines") == 12:  # 예전 기본값이면 더 많이 보이게
         cfg["max_lines"] = DEFAULT_CONFIG["max_lines"]
+    if not cfg.get("_mig_haiku_on"):  # 성윤님 요청(10/25): AI 번역 켜고 가벼운 haiku 로 (한 번만 적용)
+        cfg["ai_cli_model"] = "haiku"
+        cfg["ai_paused"] = False
+        cfg["_mig_haiku_on"] = True
     return cfg
 
 
@@ -1224,6 +1228,8 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
   필리핀(타갈로그): po=요, pre/pare=형, tara=가자, sige=ㅇㅋ, salamat=고마워.
   베트남어: ae=형들/다들, dc=됨, ko/k=안 돼/아니, mn=다들.
 - OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측한 뒤 그걸 한국어로 번역하고, 앞에 (추정)을 붙여. 영어를 그대로 출력하지 마.
+- 줄 끝에 ⟪용어 적용: ...⟫ 가 있으면, 그건 메이플 용어 사전으로 미리 바꿔둔 문장이야. 거기 나온 한국어 용어(노작, 크뎀, 장공, 귀지력, 목장갑, 17만5천 같은 금액, 25채널, 2개 등)는 바꾸지 말고 그대로 써서 자연스러운 문장으로 다듬어. 출력에는 ⟪⟫ 부분을 쓰지 마.
+- 원문에 S>/B>/WTS/WTB/selling/buying 같은 표시가 없으면 [팝니다]/[삽니다]를 새로 붙이지 마.
 - 거래 줄임말은 절대 영어로 남기지 마: pmo/PMO = "가격 제시 귓 주세요", obo = "가격 제시 받아요", pm = "귓 주세요", c/o = 현재 최고가, a/w = 즉시 낙찰가.
 - OCR이 철자를 깨뜨린 단어는 메이플 거래 문맥으로 원래 단어를 추측해서 번역해 (확실할 때만).
   예) "parrina"/"earrina"/"earing" → earring(귀고리), "f 7."/"6O%"/"6o%" 가 주문서 자리에 있으면 60%, "thesp" → these, "lnt"/"1nt" → INT
@@ -1984,7 +1990,8 @@ def run_app():
                         out_q.put((name, tr_text, msg, None, kind, eid, ch,
                                    kor, trade_of(msg)))
                         if ai.enabled and not cfg.get("ai_paused"):
-                            ai_q.put((eid, msg))
+                            # 용어 사전을 먼저 적용한 문장도 같이 줘서 AI가 노작·크뎀·장공·금액 표기를 그대로 쓰게
+                            ai_q.put((eid, msg + (f"  ⟪용어 적용: {kor}⟫" if kor and kor != msg else "")))
                 if batch:
                     if err and err != state.get("last_err"):
                         out_q.put((None, err, None, "err", None, 0))
