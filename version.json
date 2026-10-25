@@ -1,1 +1,1 @@
-{"version": 34, "note": "채팅창 영역이 게임 화면에 겹쳐 내 캐릭터 이름표를 채팅으로 읽던 줄 걸러냄 + 그럴 때 F9 재선택 안내", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 35, "note": "용어 추가: c/0=현재 최고가, glove att=장공, magic att=마력, W.Attack=공격력, Bunny ears=토끼 귀, cash only=메소만, no low offers=후려치기 사절", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
