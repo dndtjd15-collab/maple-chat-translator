@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 29  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 30  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -192,6 +192,10 @@ class Glossary:
 
         # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
         text = re.sub(r"(?<![A-Za-z])(?:ch|cc)\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9])(\d{1,2})\s?ch(?![A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z])lv\.?\s?(\d{1,3})(?![0-9])", lambda m: hold(m.group(1) + "레벨"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9])(\d{1,3})\s?(min|mins|minutes)(?![A-Za-z])", lambda m: hold(m.group(1) + "분"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9])(\d{1,3})\s?(sets?)(?![A-Za-z])", lambda m: hold(m.group(1) + "세트"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "watk": "공", "ma": "마",
@@ -329,7 +333,12 @@ class Translator:
         return r.json()["translations"][0]["text"]
 
     def _request(self, text):
-        last_err = "번역 엔진 없음"
+        last_err = "번역 엔진이 모두 쉬는 중"
+        # 너무 자주 보내면 구글이 막음 -> 요청 사이 최소 1.2초
+        gap = time.time() - getattr(self, "_last_req", 0)
+        if gap < 1.2:
+            time.sleep(1.2 - gap)
+        self._last_req = time.time()
         now = time.time()
         for name, fn in self.engines:
             if self.blocked.get(name, 0) > now:
@@ -337,9 +346,10 @@ class Translator:
             try:
                 return fn(text)
             except Exception as e:  # noqa: BLE001
-                last_err = f"{name}: {type(e).__name__}"
+                last_err = f"{name}: {type(e).__name__} {str(e)[:80]}"
+                dlog("ENGINE-ERR", last_err)
                 # 막힌 엔진은 잠시 쉬게 하고 바로 다음 엔진 시도
-                self.blocked[name] = now + (60 if "TooMany" in str(e) else 15)
+                self.blocked[name] = now + (30 if "TooMany" in str(e) else 5)
         raise RuntimeError(last_err)
 
     def translate_many(self, texts):
@@ -902,7 +912,7 @@ def _looks_like_item(item):
 
 
 # OCR이 S> B> 를 S) 5> B) 8> S» 처럼 잘못 읽는 경우를 원래대로 되돌림
-_TRADE_TAG_RE = re.compile(r"(?:(?<=^)|(?<=[\s:;/,\]]))([SsBbTtLlFf5$8])\s?[>)»›\}<]\s*")
+_TRADE_TAG_RE = re.compile(r"(?:(?<=^)|(?<=[\s:;/,\]]))([SsBbTtLlFfJj5$8])\s?[>)»›\}<]\s*")
 _TRADE_MAP = {"5": "S", "$": "S", "8": "B"}
 
 

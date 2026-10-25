@@ -1,1 +1,1 @@
-{"version": 29, "note": "파티 시스템 메시지(탈퇴/가입/추방/파티장 변경) 숨기고 파티원 채팅만 표시", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 30, "note": "구글 번역 막힘 줄이기(요청 간격 조절), 45레벨·10분·5세트·17채널 표기, 경매·급처·Buying/Selling 등 용어", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
