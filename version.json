@@ -1,1 +1,1 @@
-{"version": 39, "note": "종류별 색 구분(확성기·고확·특확 배경색, 파티·귓속말·길드·친구 글자색), 저장된 AI 번역 오번역 977개 수정·찌꺼기 391개 삭제, 아이템 이름 100여 개 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 40, "note": "구글 번역과 AI 번역을 비교해서 구글이 놓친 메이플 용어 60여 개 추가 (쿰비 표창, 명중, 장비, 최저가, 인기도 내리기 등)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
