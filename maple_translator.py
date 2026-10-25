@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 17  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 18  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -78,10 +78,19 @@ def save_config(cfg):
 KO_TERMS = {}  # 한글 용어 교체 (사전의 ko_terms). 예) 클로 -> 아대
 
 
+# 최종 표기 다듬기 (성윤님 요청 표기)
+FINAL_FIX = [
+    (re.compile(r"아대\s*공격력\s*주문서\s*[:：]?\s*(?:중급)?"), "아대공격력 주문서"),
+    (re.compile(r"아대\s+공격력"), "아대공격력"),
+]
+
+
 def apply_ko_terms(text):
     for k, v in KO_TERMS.items():  # 낱말 단위로만 (클로버 -> 아대버 방지)
         text = re.sub(r"(?<![가-힣])" + re.escape(k) + r"(?![가-힣])", v, text)
-    return text
+    for pat, rep_ in FINAL_FIX:
+        text = pat.sub(rep_, text)
+    return re.sub(r"주문서 \]", "주문서]", text)
 
 
 class Glossary:
@@ -215,7 +224,7 @@ class Glossary:
         missing = [s for i, s in enumerate(slots) if s not in out]
         if missing:
             out = out + "  (" + ", ".join(missing) + ")"
-        out = re.sub(r"\s+([,.!?])", r"\1", out)
+        out = apply_ko_terms(re.sub(r"\s+([,.!?])", r"\1", out))
         out = re.sub(r"\[\s+", "[", out)
         out = re.sub(r"\s+\]", "]", out)
         return re.sub(r"\s{2,}", " ", out).strip()
