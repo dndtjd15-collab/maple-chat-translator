@@ -18,11 +18,12 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 19  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 20  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 GLOSSARY_PATH = os.path.join(APP_DIR, "maple_glossary.json")
+AI_MEMORY_PATH = os.path.join(APP_DIR, "ai_memory.json")  # AI 번역 저장소 (같은 채팅이 또 오면 재사용)
 MY_GLOSSARY_PATH = os.path.join(APP_DIR, "my_glossary.json")  # 성윤님 개인 사전 (업데이트로 안 지워짐)
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
@@ -418,6 +419,79 @@ def parse_line(raw):
 
 def normalize(s):
     return re.sub(r"[^a-z0-9가-힣]", "", s.lower())
+
+
+class AIMemory:
+    """AI(Claude)가 번역한 결과를 파일(ai_memory.json)에 쌓아두고,
+    같은 채팅(확성기 반복 광고 등)이 다시 오면 Claude 없이 바로 재사용."""
+
+    def __init__(self, path=AI_MEMORY_PATH, size=8000):
+        self.path, self.size = path, size
+        self.data = {}
+        self.dirty = False
+        self.lock = threading.Lock()
+        self.hits = 0
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                self.data = json.load(f)
+        except Exception:  # noqa: BLE001
+            self.data = {}
+
+    @staticmethod
+    def key(text):
+        t = (text or "").lower()
+        t = re.sub(r"(?<=\d)[ol]|[ol](?=\d)", lambda m: "0" if m.group(0) == "o" else "1", t)  # 6O% -> 60%
+        t = re.sub(r"pm0\b", "pmo", t)
+        t = re.sub(r"[^a-z0-9가-힣%+>/]", "", t)
+        return t[:200]
+
+    def get(self, orig):
+        k = self.key(orig)
+        if len(k) < 4:
+            return None
+        with self.lock:
+            hit = self.data.get(k)
+            if not hit:
+                # OCR이 글자를 조금 다르게 읽은 경우: 숫자(가격)가 똑같을 때만 비슷한 문장 재사용
+                digits = re.findall(r"\d+", k)
+                recent = sorted(self.data.items(), key=lambda kv: kv[1].get("t", 0), reverse=True)[:600]
+                for ok, ov in recent:
+                    if abs(len(ok) - len(k)) <= 4 and re.findall(r"\d+", ok) == digits \
+                            and SequenceMatcher(None, ok, k).ratio() > 0.93:
+                        hit = ov
+                        break
+            if hit:
+                hit["n"] = hit.get("n", 1) + 1
+                hit["t"] = int(time.time())
+                self.hits += 1
+                self.dirty = True
+                return hit["tr"]
+        return None
+
+    def add(self, orig, tr):
+        k = self.key(orig)
+        if len(k) < 4 or not tr:
+            return
+        with self.lock:
+            old = self.data.get(k, {})
+            self.data[k] = {"orig": orig, "tr": tr, "n": old.get("n", 1), "t": int(time.time())}
+            if len(self.data) > self.size:
+                for dk, _v in sorted(self.data.items(), key=lambda kv: kv[1].get("t", 0))[:len(self.data) - self.size]:
+                    del self.data[dk]
+            self.dirty = True
+
+    def save(self):
+        if not self.dirty:
+            return
+        with self.lock:
+            try:
+                tmp = self.path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(self.data, f, ensure_ascii=False, indent=0)
+                os.replace(tmp, self.path)
+                self.dirty = False
+            except Exception as e:  # noqa: BLE001
+                dlog("MEMORY-SAVE-ERR", repr(e))
 
 
 class SeenLines:
@@ -1278,6 +1352,7 @@ def run_app():
     glossary = Glossary()
     translator = Translator(cfg["target_lang"], cfg.get("deepl_api_key", ""))
     seen = SeenLines()
+    memory = AIMemory()
     out_q = queue.Queue()
     ai = AITranslator(cfg)
     ai_q = queue.Queue()
@@ -1578,7 +1653,7 @@ def run_app():
                 body.insert("end", "\n")
             # 닉네임이 없는 줄 = 앞 채팅이 길어서 줄바꿈된 부분 -> 내용만 표시
             # 2줄: 번역된 대화 내용
-            body.insert("end", ("  ✦ " if is_ai else "  ▶ ") + tr + "\n", ("msg", "watchmsg") if hit else "msg")
+            body.insert("end", ("  ✧ " if is_ai == "mem" else "  ✦ " if is_ai else "  ▶ ") + tr + "\n", ("msg", "watchmsg") if hit else "msg")
             # 3줄: 원문 (선택)
             if cfg["show_original"] and orig and orig != tr:
                 body.insert("end", "     " + orig + "\n", "orig")
@@ -1673,6 +1748,11 @@ def run_app():
                     if cfg["skip_korean_lines"] and plain.strip() and len(HANGUL_RE.findall(plain)) > len(plain) * 0.3:
                         ordered.append(("now", (name, msg, msg, None, kind, ch)))
                         continue
+                    if cfg.get("ai_memory", True):
+                        saved = memory.get(msg)
+                        if saved:  # 예전에 AI가 번역한 똑같은 채팅 -> Claude·구글 없이 바로
+                            ordered.append(("mem", (name, saved, msg, None, kind, ch)))
+                            continue
                     protected, slots = glossary.protect(msg)
                     ordered.append(("tr", len(batch)))
                     batch.append((name, msg, protected, slots, kind, ch))
@@ -1682,9 +1762,9 @@ def run_app():
                     translated, err = translator.translate_many([b[2] for b in batch])
                 for how, val in ordered:
                     eid = next_id()
-                    if how == "now":
+                    if how in ("now", "mem"):
                         name, tr, msg, tag, kind, ch = val
-                        out_q.put((name, tr, msg, tag, kind, eid, ch, msg, trade_of(msg)))
+                        out_q.put((name, tr, msg, tag, kind, eid, ch, msg, trade_of(msg), how == "mem"))
                     else:
                         name, msg, prot, slots, kind, ch = batch[val]
                         kor = glossary.restore(prot, slots)  # 용어만 한국어로 바꾼 원문 (찜 검색용)
@@ -1746,6 +1826,8 @@ def run_app():
                 for e in reversed(entries):
                     if e[5] == item[1]:
                         e[1], e[6] = item[2], True
+                        if cfg.get("ai_memory", True) and e[2]:
+                            memory.add(e[2], item[2])
                         left = english_left(item[2], e[2])
                         if left and e[0] and left != [e[0]]:
                             left = [w for w in left if w.lower() != (e[0] or "").lower()]
@@ -1754,9 +1836,9 @@ def run_app():
                         check_watch(e)
                         break
             else:
-                ex = list(item) + [None] * (9 - len(item))
+                ex = list(item) + [None] * (10 - len(item))
                 # [0닉 1번역 2원문 3태그 4종류 5id 6AI 7채널 8거래 9찜 10검색용]
-                e = list(ex[:6]) + [False, ex[6], ex[8], None, ex[7]]
+                e = list(ex[:6]) + ["mem" if ex[9] else False, ex[6], ex[8], None, ex[7]]
                 entries.append(e)
                 check_watch(e)
             changed = True
@@ -1803,7 +1885,13 @@ def run_app():
         save_config(cfg)
         render()
 
+    def autosave():
+        memory.save()
+        root.after(30_000, autosave)
+    root.after(30_000, autosave)
+
     def on_close():
+        memory.save()
         state["running"] = False
         cfg["overlay_geometry"] = root.geometry()
         save_config(cfg)

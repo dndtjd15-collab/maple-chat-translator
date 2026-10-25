@@ -5,3 +5,4 @@ __pycache__/
 *.new
 문제기록.txt
 문제기록_이미지/
+ai_memory.json
