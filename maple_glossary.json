@@ -632,8 +632,8 @@
     "ink-and-wash name ring": "수묵화 명찰 반지",
     "ink-and-wash": "수묵화",
     "mystery or founders crates": "미스테리·파운더 상자",
-    "kumbi": "쿰비 표창",
-    "kumbis": "쿰비 표창",
+    "kumbi": "금비 표창",
+    "kumbis": "금비 표창",
     "buff": "버프",
     "selective coupons": "선택 쿠폰",
     "throwing star": "표창",
@@ -683,7 +683,10 @@
     "or less": "이하",
     "lowest on market": "시장 최저가",
     "on market": "시장",
-    "cheapest on market": "시장 최저가"
+    "cheapest on market": "시장 최저가",
+    "kumbi throwing stars": "금비 표창",
+    "hwabi": "화비 표창",
+    "hwabis": "화비 표창"
   },
   "terms_case": {
     "MA": "마력",
@@ -736,6 +739,7 @@
   "ko_terms": {
     "_설명": "[아이템] 이름 안의 한글을 바꿀 때. 예) 클로 -> 아대",
     "클로": "아대",
-    "대극부채": "태극부채"
+    "대극부채": "태극부채",
+    "쿰비": "금비"
   }
 }

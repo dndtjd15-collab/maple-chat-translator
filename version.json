@@ -1,1 +1,1 @@
-{"version": 40, "note": "구글 번역과 AI 번역을 비교해서 구글이 놓친 메이플 용어 60여 개 추가 (쿰비 표창, 명중, 장비, 최저가, 인기도 내리기 등)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 41, "note": "Kumbi = 금비 표창으로 수정 (쿰비 아님), 화비 표창 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
