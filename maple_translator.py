@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 24  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 25  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1108,6 +1108,11 @@ def _dist(a, b):
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
 
 
+def _chroma(c):
+    t = float(sum(c)) or 1.0
+    return (c[0] / t, c[1] / t, c[2] / t)
+
+
 def classify_line(img, rect):
     """채팅 한 줄의 종류를 배경색/글자색으로 판별."""
     if img is None or rect is None:
@@ -1119,14 +1124,21 @@ def classify_line(img, rect):
         return "일반"
     pixels = list(img.crop((x0, y0, x1, y1)).getdata())[::2]
     n = len(pixels) or 1
-    # 1) 배경색 (줄 면적의 25% 이상이 해당 색이면 확성기)
-    best, best_ratio = None, 0.0
-    for kind, ref, _c in BG_KINDS:
-        ratio = sum(1 for p in pixels if _dist(p, ref) < 50) / n
-        if ratio > best_ratio:
-            best, best_ratio = kind, ratio
-    if best and best_ratio > 0.25:
-        return best
+    # 1) 배경색: 확성기 줄은 '한 가지 색으로 꽉 칠해진' 배경이라,
+    #    줄에서 가장 많은 색이 35% 이상이고 그게 확성기 색이어야 함
+    #    (채팅창이 반투명이라 뒤 맵 배경 색이 비쳐도 확성기로 착각하지 않게)
+    buckets = {}
+    for p in pixels:
+        key = (p[0] // 12, p[1] // 12, p[2] // 12)
+        buckets[key] = buckets.get(key, 0) + 1
+    top_key, top_n = max(buckets.items(), key=lambda kv: kv[1])
+    top_color = tuple(v * 12 + 6 for v in top_key)
+    if top_n / n >= 0.35 and sum(top_color) > 150 and max(top_color) - min(top_color) > 25:
+        # 밝기와 상관없이 '색 비율'로 비교 (채팅창 투명도에 따라 확성기 색이 밝게/어둡게 보임)
+        tc = _chroma(top_color)
+        for kind, ref, _c in BG_KINDS:
+            if _dist(tc, _chroma(ref)) < 0.06:
+                return kind
     # 2) 글자색 (밝은 픽셀 중 가장 많은 색)
     bright = [p for p in pixels if max(p) > 150]
     if len(bright) < 5:
@@ -1868,7 +1880,7 @@ def run_app():
                                   "right": (rect[0] + rect[2]) if rect else 0})
                 for c in cands:
                     cur_key, name, msg, ch, kind = c["keys"], c["name"], c["msg"], c["ch"], c["kind"]
-                    dlog("LINE", repr(name), ch, msg)
+                    dlog("LINE", kind, repr(name), ch, msg)
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)

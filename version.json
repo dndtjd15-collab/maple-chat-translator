@@ -1,1 +1,1 @@
-{"version": 24, "note": "귓속말(Name>> / Name<<) 인식, 번역 결과 기록(TR), 장마·완마·펫 이속 등 용어 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 25, "note": "확성기/고확 판별을 색 비율로 바꿔서 일반 채팅이 확성기로 잘못 분류되던 문제 수정 (일반 탭 누락 개선)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
