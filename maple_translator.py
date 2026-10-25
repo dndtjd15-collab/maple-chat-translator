@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 49  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 50  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -719,7 +719,18 @@ class ScreenOCR:
         (CH 배지·하트 아이콘 때문에 윈도우 OCR이 한 줄을 여러 조각으로 쪼개는 문제 해결)"""
         import asyncio
         import winocr
-        result = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(img, lang)))
+        if lang == "en" and getattr(self, "_no_en", False):
+            lang = "ko"  # 영어 OCR 언어팩이 없는 PC -> 한국어 OCR로 대신 읽기 (영어도 읽힘)
+        try:
+            result = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(img, lang)))
+        except AssertionError:
+            if lang == "en":
+                self._no_en = True
+                OCR_NOTICE[0] = ("영어 OCR 언어팩이 없어서 한국어 OCR로 대신 읽고 있어요. 더 정확하게 하려면 설치하기.bat 를 "
+                                 "다시 실행하거나 [설정 > 시간 및 언어 > 언어]에서 English (United States) 를 추가하세요.")
+                result = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(img, "ko")))
+            else:
+                raise
         scale = self.upscale or 1
         words = []
         for ln in getattr(result, "lines", None) or []:
@@ -955,7 +966,7 @@ class ScreenOCR:
         self.last_img = self._orig
         en = self._ocr(img, self.lang)
         ko = []
-        if self.lang != "ko" and self._ko_supported():
+        if self.lang != "ko" and not getattr(self, "_no_en", False) and self._ko_supported():
             try:
                 ko = self._ocr(img, "ko")
             except Exception:  # noqa: BLE001
@@ -1053,6 +1064,7 @@ def dlog(*parts):
 
 
 DEBUG = [False]
+OCR_NOTICE = [None]  # 화면에 한 번 알려줄 OCR 관련 안내
 
 # ---- 문제 자동 기록: 이상해 보이는 줄을 스스로 찾아서 모아둠 (나중에 한 번에 고치기용) ----
 ISSUE_PATH = os.path.join(APP_DIR, "문제기록.txt")
@@ -2179,6 +2191,9 @@ def run_app():
 
     def pump():
         changed = False
+        if OCR_NOTICE[0]:
+            info(OCR_NOTICE[0], "err")
+            OCR_NOTICE[0] = None
         while True:
             try:
                 item = out_q.get_nowait()

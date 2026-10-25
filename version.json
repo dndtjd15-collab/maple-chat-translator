@@ -1,1 +1,1 @@
-{"version": 49, "note": "설치 파일 수정: 윈도우 스토어 가짜 python 을 진짜로 착각하던 문제, 파이썬 자동 설치 후 바로 이어서 설치", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 50, "note": "영어 OCR 언어팩이 없는 PC에서 오류 대신 한국어 OCR로 대신 읽고 안내 표시", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
