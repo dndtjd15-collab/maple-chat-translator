@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-메이플 채팅 번역기 (MapleStory Classic World chat translator) - 성윤 전용
+메이플 채팅 번역기 (MapleStory Classic World chat translator)
 
 채팅창 영역을 주기적으로 캡처 -> 윈도우 기본 OCR로 글자 인식
 -> 메이플 용어 사전으로 줄임말/아이템 용어 처리 -> 구글 번역(무료)
@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 47  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 48  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +40,7 @@ DEFAULT_CONFIG = {
     "max_lines": 25,           # 오버레이에 보여줄 줄 수
     "font_size": 11,
     "show_original": True,     # 번역 아래 원문 표시
-    "my_name": "SungWoong",    # 내 채팅은 번역 생략
+    "my_name": "",             # 내 게임 닉네임 (처음 켤 때 물어봄) - 내 채팅은 번역 생략
     "skip_korean_lines": True, # 이미 한국어인 줄은 번역 생략
     "auto_update": True,       # 실행할 때 GitHub에서 새 버전 자동 받기
     "debug": True,             # 문제 확인용 기록(debug_log.txt) 남기기
@@ -1391,7 +1391,7 @@ def polish_ai(text):
 
 
 OUT_PROMPT = """너는 메이플스토리 클래식 월드(GMS, 해외 서버) 채팅 통역사야.
-한국 유저(성윤)가 쓴 한국어 채팅을 {lang} 게임 채팅으로 바꿔줘.
+한국 유저가 쓴 한국어 채팅을 {lang} 게임 채팅으로 바꿔줘.
 규칙:
 - 실제 해외 유저들이 게임에서 치는 짧고 자연스러운 채팅 말투로. 교과서 문장 금지.
 - 거래: 팝니다=S>, 삽니다=B>, 교환=T>, 구해요=L>, 가격 제안 받아요=obo / taking offers, 귓 주세요=pm me, 현재 최고가=c/o, 즉시 낙찰가=a/w, 개당=ea.
@@ -2316,7 +2316,16 @@ def run_app():
         info("전역 단축키를 못 켰어요. 오버레이 버튼을 쓰거나 관리자 권한으로 실행하세요.", "err")
 
     set_view(view_var.get())
-    info("성윤님 반가워요! 오버레이는 채팅창과 안 겹치는 곳에 두세요.")
+    if not cfg.get("my_name"):  # 처음 쓰는 사람: 게임 닉네임 물어보기 (내 채팅은 번역 안 하려고)
+        try:
+            from tkinter import simpledialog
+            nm = simpledialog.askstring("메이플 채팅 번역기", "게임 캐릭터 닉네임을 입력하세요\n(내가 친 채팅은 번역하지 않아요)", parent=root)
+            if nm and nm.strip():
+                cfg["my_name"] = nm.strip()
+                save_config(cfg)
+        except Exception:  # noqa: BLE001
+            pass
+    info(f"{cfg.get('my_name') or ''}님 반가워요! 오버레이는 채팅창과 안 겹치는 곳에 두세요.".lstrip("님 "))
     if ai.enabled:
         info("AI 번역 켜짐: ▶ 구글 번역이 먼저 뜨고, 잠시 뒤 ✦ 자연스러운 한국어로 바뀌어요.")
     elif ai.error:
