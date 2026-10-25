@@ -1,1 +1,1 @@
-{"version": 26, "note": "일반 탭 정리: 한글 공지는 한글 그대로(공지로 분류), 아이템 설명창 겹침(MaxHP +10 등) 제거, 가챠 알림 분리", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 27, "note": "게임 공지·가챠 알림은 아예 안 보이게 (config hide_notice)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

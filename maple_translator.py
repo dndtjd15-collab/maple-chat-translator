@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 26  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 27  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +44,7 @@ DEFAULT_CONFIG = {
     "skip_korean_lines": True, # 이미 한국어인 줄은 번역 생략
     "auto_update": True,       # 실행할 때 GitHub에서 새 버전 자동 받기
     "debug": True,             # 문제 확인용 기록(debug_log.txt) 남기기
+    "hide_notice": True,       # 게임 공지·가챠 알림 숨기기 (false 면 [전체]에 보임)
     "hide_kinds": [],          # 안 보고 싶은 종류. 예: ["확성기", "고확"]
     "region": None,            # [left, top, width, height] (F9로 지정하면 자동 저장)
     "overlay_geometry": "560x320+40+40",
@@ -1903,7 +1904,9 @@ def run_app():
                     if ch in ("받은 귓", "보낸 귓"):
                         kind = "귓속말"
                     elif not name and _NOTICE_RE.search(msg):
-                        kind = "공지"  # 게임 공지·가챠 알림 -> [일반] 탭에서 빼고 [전체]에만
+                        kind = "공지"  # 게임 공지·가챠 알림
+                        if cfg.get("hide_notice", True):
+                            continue  # 아예 안 보여줌 (번역도 안 함)
                     if ch == "보낸 귓" or (name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower()):
                         ordered.append((cur_key, "now", (name, msg, msg, None, kind, ch)))
                         continue
