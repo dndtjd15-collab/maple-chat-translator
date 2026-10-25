@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 38  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 39  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -153,6 +153,7 @@ class Glossary:
             slots.append(korean)
             return f" ZZ{len(slots) - 1}QQ "
 
+        text = re.sub(r"\s*[—–]\s*", "-", text)  # 긴 대시 통일 (Ink—and—Wash)
         # 1) 대괄호 아이템 링크: 한글은 그대로, 영어 부분만 번역
         #    [에메랄드 귀고리] -> 그대로 / [Emerald Earrings] -> [에메랄드 귀고리]
         #    [장갑 Attack 주문서] -> 한글 유지 + Attack 만 번역
@@ -195,7 +196,7 @@ class Glossary:
                       money, text, flags=re.IGNORECASE)
 
         # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
-        text = re.sub(r"(?<![A-Za-z])(?:ch|cc)\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z])(?:ch|cc)\.?\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,2})\s?ch(?![A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])lv\.?\s?(\d{1,3})(?![0-9])", lambda m: hold(m.group(1) + "레벨"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,3})\s?(min|mins|minutes)(?![A-Za-z])", lambda m: hold(m.group(1) + "분"), text, flags=re.I)
@@ -545,6 +546,24 @@ class AIMemory:
                 self.data = json.load(f)
         except Exception:  # noqa: BLE001
             self.data = {}
+        # 오번역 일괄 수정 파일(ai_memory_fix.json)이 있으면 반영하고 .applied 로 이름 바꿈
+        fix_path = os.path.join(os.path.dirname(path) or ".", "ai_memory_fix.json")
+        if os.path.exists(fix_path):
+            try:
+                with open(fix_path, "r", encoding="utf-8") as f:
+                    fix = json.load(f)
+                for k in fix.get("delete", []):
+                    self.data.pop(k, None)
+                for k, v in (fix.get("set") or {}).items():
+                    old = self.data.get(k, {})
+                    self.data[k] = {"orig": v.get("orig", old.get("orig", "")), "tr": v["tr"],
+                                    "n": old.get("n", 1), "t": old.get("t", int(time.time()))}
+                self.dirty = True
+                self.save()
+                os.replace(fix_path, fix_path + ".applied")
+                dlog("MEMORY-FIX", len(fix.get("set") or {}), "set", len(fix.get("delete", [])), "deleted")
+            except Exception as e:  # noqa: BLE001
+                dlog("MEMORY-FIX-ERR", repr(e))
 
     @staticmethod
     def key(text):
@@ -1735,6 +1754,17 @@ def run_app():
     body.tag_configure("gap", font=("Malgun Gothic", 3))
     body.tag_configure("chan", foreground="#8f98ab", font=("Segoe UI", max(8, cfg["font_size"] - 2)))
     body.tag_configure("err", foreground="#ff7b7b")
+    # 종류별 배경색(확성기류)·글자색(파티·귓속말 등) - 게임 채팅창 색과 비슷하게, 어두운 창에서 잘 보이게
+    style_tags = set()
+    for _k, _bg in {"확성기": "#3d2533", "고확": "#3f3410", "특확": "#123b37"}.items():
+        body.tag_configure("bg_" + _k, background=_bg)
+        style_tags.add("bg_" + _k)
+    for _k, _fg in {"파티": "#ff9fd0", "귓속말": "#8dff6a", "길드": "#c9a6ff", "친구": "#ffbf4d",
+                    "확성기": "#ffe3f1", "고확": "#fff1c2", "특확": "#d6fff9", "일반": "#ffffff"}.items():
+        body.tag_configure("tx_" + _k, foreground=_fg)
+        style_tags.add("tx_" + _k)
+    body.tag_raise("watchmsg")
+    body.tag_raise("watchbar")
     for _k, _c in KIND_COLORS.items():
         body.tag_configure("k_" + _k, foreground=_c, font=("Malgun Gothic", max(8, cfg["font_size"] - 1), "bold"))
     body.configure(state="disabled")
@@ -1875,6 +1905,9 @@ def run_app():
             if tag:
                 body.insert("end", tr + "\n", tag)
                 continue
+            # 게임처럼 종류별로 색 구분: 확성기·고확·특확 = 배경색, 파티·귓속말·길드·친구 = 글자색
+            kname = kind or "일반"
+            block_start = body.index("end-1c")
             # 1줄: [종류] 닉네임
             if hit:
                 body.insert("end", f" ★ 찜: {hit} ", "watchbar")
@@ -1894,10 +1927,15 @@ def run_app():
                 body.insert("end", "\n")
             # 닉네임이 없는 줄 = 앞 채팅이 길어서 줄바꿈된 부분 -> 내용만 표시
             # 2줄: 번역된 대화 내용
+            msg_start = body.index("end-1c")
             body.insert("end", ("  ✧ " if is_ai == "mem" else "  ✦ " if is_ai else "  ▶ ") + tr + "\n", ("msg", "watchmsg") if hit else "msg")
+            if not hit and ("tx_" + kname) in style_tags:
+                body.tag_add("tx_" + kname, msg_start, "end-1c")
             # 3줄: 원문 (선택)
             if cfg["show_original"] and orig and orig != tr:
                 body.insert("end", "     " + orig + "\n", "orig")
+            if ("bg_" + kname) in style_tags:
+                body.tag_add("bg_" + kname, block_start, "end-1c")
             body.insert("end", "\n", "gap")
         body.configure(state="disabled")
         body.see("end")

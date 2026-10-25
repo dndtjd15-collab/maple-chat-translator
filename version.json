@@ -1,1 +1,1 @@
-{"version": 38, "note": "일반 채팅 닉네임 인식 개선(콜론을 . • « 로 잘못 읽어도 닉네임 분리 → 클릭 복사 가능), 노란 공지 색으로 숨김", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 39, "note": "종류별 색 구분(확성기·고확·특확 배경색, 파티·귓속말·길드·친구 글자색), 저장된 AI 번역 오번역 977개 수정·찌꺼기 391개 삭제, 아이템 이름 100여 개 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
