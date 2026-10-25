@@ -1,1 +1,1 @@
-{"version": 33, "note": "일반 채팅(흰 글씨) 인식 개선: 흰 글씨만 뽑아 한 번 더 읽고 깨끗한 쪽 사용, OCR 찌꺼기 줄 자동 제거, '번역 불가' 줄 숨김, 한글 공지 숨김 강화", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 34, "note": "채팅창 영역이 게임 화면에 겹쳐 내 캐릭터 이름표를 채팅으로 읽던 줄 걸러냄 + 그럴 때 F9 재선택 안내", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

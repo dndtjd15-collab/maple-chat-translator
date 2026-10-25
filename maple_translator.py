@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 33  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 34  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -467,6 +467,29 @@ def normalize(s):
 
 
 _WORD_OK = re.compile(r"^[\[(\"'*]*((?=[A-Za-z']*[aeiouyAEIOUY])(?:[A-Z]?[a-z']+|[A-Z']+)|\d+([.,]\d+)?(?i:k|m|kk|%|x)?|[SBTLJ]>|(?i:ch|lv)\.?\d+|\d+(?i:[a-z]{1,4})|[A-Z]{2,5}|(?i:ok|k|u|ty|gz|lol|pm|pmo|pm0|nx|fm|cc|ea|obo|a/w|c/o|sry|brb|omw)|[:/&+\-<>]|>>|<<)[\])\"'.,!?:;~]*$")
+
+
+_CHAT_SHORT = {"sry", "ok", "ty", "lol", "brb", "omw", "gz", "pm", "hi", "hey", "yo", "np", "gg", "plz", "pls"}
+
+
+def is_my_nametag(msg, my_name):
+    """닉네임 없이 읽힌 줄이 캐릭터 머리 위 내 이름표(SungWoong + 펫·길드 이름)뿐인지.
+    채팅 영역이 게임 화면에 겹치면 이름표를 채팅으로 잘못 읽어 번역 엔진을 낭비함.
+    내 이름 말고 대화 같은 단어(소문자 단어·sry·가격 등)가 하나라도 있으면 채팅으로 보고 남김."""
+    me = re.sub(r"[^a-z]", "", (my_name or "").lower())
+    if len(me) < 5:
+        return False
+    frags = [me[i:i + 5] for i in range(len(me) - 4)]
+    found = False
+    for tok in (msg or "").split():
+        flat = re.sub(r"[^a-z]", "", tok.lower().replace("vv", "w").replace("0", "o"))
+        if any(f in flat for f in frags):
+            found = True
+            continue  # 내 이름(이 섞인) 토큰
+        word = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", tok)
+        if re.fullmatch(r"[a-z]{2,}", word) or word.lower() in _CHAT_SHORT or re.search(r"\d\s*[kKmM]\b", word):
+            return False  # 대화 단어가 있음 -> 진짜 채팅일 수 있음
+    return found
 
 
 def text_quality(text):
@@ -1984,6 +2007,14 @@ def run_app():
                     if not name and not HANGUL_RE.search(msg) and not trade_of(msg) and text_quality(msg) < 0.55:
                         dlog("DROP-JUNK", msg)
                         continue  # 닉네임도 없고 글자가 엉망인 줄 = OCR 찌꺼기
+                    if (not name and ":" not in msg and not HANGUL_RE.search(msg) and not trade_of(msg)
+                            and is_my_nametag(msg, cfg.get("my_name"))):
+                        dlog("DROP-NAMETAG", msg)
+                        state["nametag_n"] = state.get("nametag_n", 0) + 1
+                        if state["nametag_n"] == 15:  # 계속 이름표만 읽히면 한 번 알려줌
+                            out_q.put((None, "채팅창 대신 게임 화면(캐릭터 이름표)이 읽히고 있어요. "
+                                             "F9로 채팅창 영역을 다시 선택해 주세요", None, "err", None, 0))
+                        continue  # 내 캐릭터 이름표를 채팅으로 잘못 읽은 줄 (채팅창 영역이 게임 화면에 겹침)
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if ch in ("받은 귓", "보낸 귓"):
@@ -2161,6 +2192,7 @@ def run_app():
             info("먼저 F9(영역 선택)로 채팅창을 지정하세요.", "err")
             return
         state["running"] = True
+        state["nametag_n"] = 0
         power_btn.configure(text="■ 끄기", bg="#c92a2a", activebackground="#e03131")
         status.configure(text="번역 중…  (F8 정지)", fg="#7ee08a")
         state["worker"] = threading.Thread(target=worker, daemon=True)
