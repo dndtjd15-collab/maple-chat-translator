@@ -1,1 +1,1 @@
-{"version": 35, "note": "용어 추가: c/0=현재 최고가, glove att=장공, magic att=마력, W.Attack=공격력, Bunny ears=토끼 귀, cash only=메소만, no low offers=후려치기 사절", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 36, "note": "용어 추가: Ink Name Ring=수묵화 명찰 반지, Korean Fan=태극부채, face coupon=성형 쿠폰, WA=공격력, OHB/OHS=한손둔기/한손검, prn(=pm)=귓, halo=헤일로, FM entrance=자유시장 입구 등", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
