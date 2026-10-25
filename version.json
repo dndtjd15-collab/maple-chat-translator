@@ -1,1 +1,1 @@
-{"version": 51, "note": "설치하기.bat: 영어 OCR 언어팩 확인을 관리자 권한 없이 하고, 없을 때만 관리자 창 띄워 설치", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 52, "note": "경험치 측정 추가: 타이머, 먹은 경험치, 시간당 경험치, 사냥터·파티별 기록(exp_log.csv)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}

@@ -8,3 +8,4 @@ __pycache__/
 ai_memory.json
 debug_badge.png
 debug_capture.png
+exp_log.csv

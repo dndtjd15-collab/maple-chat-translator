@@ -9,6 +9,7 @@
 단축키: F9 = 채팅창 영역 선택, F8 = 번역 시작/정지 (오버레이 버튼으로도 가능)
 테스트: python maple_translator.py --test "S> Wand MA 60% 175k obo, gz!"
 """
+import csv
 import json
 import os
 import queue
@@ -18,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 51  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 52  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -714,6 +715,39 @@ class ScreenOCR:
                              Image.LANCZOS)
         return img
 
+    def read_exp(self, region):
+        """경험치 영역을 읽어서 (글자, parse_exp 결과). 그냥 읽기 -> 안 되면 흰 글자만 남겨서 다시."""
+        import asyncio
+        import winocr
+        from PIL import ImageOps
+        img = self.grab(region)
+
+        def rec(im):
+            lang = "ko" if getattr(self, "_no_en", False) else "en"
+            try:
+                res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(im, lang)))
+            except AssertionError:
+                self._no_en = True
+                res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(im, "ko")))
+            return " ".join((getattr(ln, "text", "") or "") for ln in (getattr(res, "lines", None) or []))
+
+        tries = []
+        txt = rec(img)
+        tries.append(txt)
+        rd = parse_exp(txt)
+        if not rd or rd["pct"] is None:
+            g = img.convert("L")
+            for th in (170, 120):
+                bw = g.point(lambda v, th=th: 0 if v >= th else 255).convert("RGB")
+                t2 = rec(ImageOps.expand(bw, border=12, fill="white"))
+                tries.append(t2)
+                r2 = parse_exp(t2)
+                if r2 and (not rd or (r2["pct"] is not None and rd["pct"] is None)):
+                    rd, txt = r2, t2
+                if rd and rd["pct"] is not None:
+                    break
+        return " / ".join(tries), rd
+
     def _ocr(self, img, lang):
         """OCR 후 단어들을 '같은 높이'끼리 다시 묶어서 한 줄로 만든다.
         (CH 배지·하트 아이콘 때문에 윈도우 OCR이 한 줄을 여러 조각으로 쪼개는 문제 해결)"""
@@ -1065,6 +1099,157 @@ def dlog(*parts):
 
 DEBUG = [False]
 OCR_NOTICE = [None]  # 화면에 한 번 알려줄 OCR 관련 안내
+
+
+# ---- 경험치 측정: 화면 아래 경험치 숫자를 읽어서 시간당 경험치 계산 ----
+EXP_LOG_PATH = os.path.join(APP_DIR, "exp_log.csv")
+_EXP_PCT_RE = re.compile(r"(\d{1,3}(?:[.,]\d{1,3})?)\s*%")
+_EXP_RATIO_RE = re.compile(r"(\d[\d,.]*)\s*/\s*(\d[\d,.]*)")
+
+
+def _exp_int(s):
+    s = re.sub(r"[^\d]", "", s or "")
+    return int(s) if s else None
+
+
+def parse_exp(text):
+    """'12,345 [12.34%]', 'EXP 12345 / 67890', '12345(12.34%)' 같은 글자에서
+    {"cur": 현재 경험치, "need": 필요 경험치 또는 None, "pct": 퍼센트 또는 None} 을 뽑음."""
+    if not text:
+        return None
+    t = text
+    # OCR 이 숫자를 글자로 잘못 읽는 경우 (숫자 사이에 낀 것만)
+    for _ in range(4):
+        t2 = re.sub(r"(?<=[\d,.])[Oo](?=[\d,.%Oo\s\]\)/]|$)|(?<=[\s\[(])[Oo](?=[.,]\d)", "0", t)
+        t2 = re.sub(r"(?<=[\d,.])[lI|](?=[\d,.%lI|\s\]\)/]|$)", "1", t2)
+        if t2 == t:
+            break
+        t = t2
+    pct = None
+    m = _EXP_PCT_RE.search(t)
+    if m:
+        try:
+            v = float(m.group(1).replace(",", "."))
+            if 0 <= v <= 100:
+                pct = v
+        except ValueError:
+            pass
+        t = t[:m.start()] + " " + t[m.end():]
+    cur = need = None
+    r = _EXP_RATIO_RE.search(t)
+    if r:
+        cur, need = _exp_int(r.group(1)), _exp_int(r.group(2))
+        if need and cur is not None and cur > need:
+            cur = need = None
+    if cur is None:
+        nums = [_exp_int(x) for x in re.findall(r"\d[\d,]*", t)]
+        nums = [n for n in nums if n is not None]
+        if nums:
+            cur = max(nums)
+    if cur is None:
+        return None
+    if not need and pct and pct >= 0.5:
+        need = int(round(cur * 100 / pct))
+    return {"cur": cur, "need": need, "pct": pct}
+
+
+class ExpTracker:
+    """경험치 읽은 값을 받아서 누적 경험치·시간당 경험치를 계산 (레벨업, OCR 오독 처리)."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.running = False
+        self.elapsed = 0.0
+        self.t_start = None
+        self.gained = 0
+        self.gained_pct = 0.0
+        self.levelups = 0
+        self.last = None
+        self.odd = []          # 이상한 값이 연속으로 나오면 그걸 새 기준으로 인정
+        self.last_ok = None    # 마지막으로 제대로 읽은 시각
+        self.fails = 0
+
+    def start(self):
+        if not self.running:
+            self.running = True
+            self.t_start = time.time()
+            self.last = None   # 멈춘 동안 오른 경험치는 안 셈
+
+    def pause(self):
+        if self.running:
+            self.elapsed += time.time() - self.t_start
+            self.running = False
+
+    def total_time(self):
+        return self.elapsed + (time.time() - self.t_start if self.running and self.t_start else 0)
+
+    def feed(self, rd):
+        if not self.running:
+            return
+        if not rd:
+            self.fails += 1
+            return
+        self.fails = 0
+        self.last_ok = time.time()
+        if self.last is None:
+            self.last = rd
+            return
+        lc, ln, lp = self.last["cur"], self.last["need"], self.last["pct"]
+        c, n, p = rd["cur"], rd["need"], rd["pct"]
+        # 레벨업: 퍼센트가 크게 떨어지거나 경험치가 크게 줄어듦
+        lvl = (lp is not None and p is not None and lp - p > 40) or \
+              (c < lc * 0.5 and (lp is None or lp > 50) and (n is None or ln is None or n >= ln))
+        if lvl:
+            if ln:
+                self.gained += max(0, ln - lc) + c
+            else:
+                self.gained += c
+            self.gained_pct += (100 - (lp or 0)) + (p or 0)
+            self.levelups += 1
+            self.last, self.odd = rd, []
+            return
+        d = c - lc
+        big = (ln and d > ln * 0.2) or (lp is not None and p is not None and p - lp > 20)
+        if d < 0 or big:
+            # 잘못 읽은 값일 가능성 -> 무시. 같은 쪽으로 3번 연속이면 그 값을 새 기준으로
+            self.odd.append(rd)
+            if len(self.odd) >= 3 and all(abs(o["cur"] - c) <= max(50, c * 0.02) for o in self.odd[-3:]):
+                self.last, self.odd = rd, []
+            return
+        self.odd = []
+        self.gained += d
+        if lp is not None and p is not None:
+            self.gained_pct += max(0.0, p - lp)
+        self.last = rd
+
+    def rate(self):
+        t = self.total_time()
+        return self.gained / t * 3600 if t >= 20 else 0
+
+    def pct_rate(self):
+        t = self.total_time()
+        return self.gained_pct / t * 3600 if t >= 20 else 0
+
+    def eta_sec(self):
+        r = self.rate()
+        if not r or not self.last or not self.last["need"]:
+            return None
+        left = max(0, self.last["need"] - self.last["cur"])
+        return left / r * 3600
+
+
+def fmt_hms(sec):
+    sec = int(sec or 0)
+    return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
+
+
+def fmt_eta(sec):
+    if sec is None:
+        return "-"
+    m = int(sec // 60)
+    return f"{m // 60}시간 {m % 60}분" if m >= 60 else f"{m}분"
 
 # ---- 문제 자동 기록: 이상해 보이는 줄을 스스로 찾아서 모아둠 (나중에 한 번에 고치기용) ----
 ISSUE_PATH = os.path.join(APP_DIR, "문제기록.txt")
@@ -1694,6 +1879,173 @@ def run_app():
         _b.pack(side="left", padx=2, pady=3)
         tab_btns[_name] = _b
 
+    # --- 경험치 측정 바 (타이머 + 먹은 경험치 + 시간당 경험치, 사냥터별 기록) -------------
+    from tkinter import ttk as _ttk
+    exp = ExpTracker()
+    exp_state = {"thread": None, "raw": "", "last_log": 0.0, "seg_map": None, "seg_party": None,
+                 "ocr": None, "shown": False}
+    exp_bar = tk.Frame(root, bg="#1b2430")
+    exp_lbl = tk.Label(exp_bar, text="", fg="#ffd43b", bg="#1b2430", anchor="w", justify="left",
+                       font=("Malgun Gothic", 10, "bold"))
+    exp_lbl.pack(side="top", fill="x", padx=8, pady=(3, 0))
+    exp_row = tk.Frame(exp_bar, bg="#1b2430")
+    exp_row.pack(side="top", fill="x", padx=4, pady=(1, 3))
+    tk.Label(exp_row, text="사냥터", fg="#9aa3b5", bg="#1b2430", font=("Malgun Gothic", 9)).pack(side="left", padx=(4, 2))
+    exp_map = tk.StringVar(value=cfg.get("exp_map", ""))
+    exp_map_entry = tk.Entry(exp_row, textvariable=exp_map, width=12, bg="#2d3240", fg="white",
+                             insertbackground="white", bd=0, font=("Malgun Gothic", 9))
+    exp_map_entry.pack(side="left", padx=2, ipady=2)
+    tk.Label(exp_row, text="파티", fg="#9aa3b5", bg="#1b2430", font=("Malgun Gothic", 9)).pack(side="left", padx=(6, 2))
+    exp_party = tk.StringVar(value=str(cfg.get("exp_party", "1")))
+    exp_party_box = _ttk.Combobox(exp_row, textvariable=exp_party, values=["1", "2", "3", "4", "5", "6"],
+                                  width=2, state="readonly", font=("Malgun Gothic", 9))
+    exp_party_box.pack(side="left", padx=2)
+
+    def ebtn(text, cmd, color="#2d3240"):
+        b = tk.Button(exp_row, text=text, command=cmd, bg=color, fg="white", activebackground="#3b4255",
+                      activeforeground="white", bd=0, font=("Malgun Gothic", 9), padx=7, pady=1)
+        b.pack(side="right", padx=2)
+        return b
+
+    def exp_write(kind):
+        """exp_log.csv 에 한 줄 기록 (나중에 사냥터별 효율 비교용)."""
+        t = exp.total_time()
+        if t < 60 and kind != "중간":
+            return
+        try:
+            new = not os.path.exists(EXP_LOG_PATH)
+            with open(EXP_LOG_PATH, "a", encoding="utf-8-sig", newline="") as f:
+                w = csv.writer(f)
+                if new:
+                    w.writerow(["기록시각", "종류", "사냥터", "파티인원", "경과초", "누적경험치", "누적퍼센트",
+                                "시간당경험치", "시간당퍼센트", "레벨업", "현재경험치", "필요경험치"])
+                last = exp.last or {}
+                w.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), kind, exp_state["seg_map"] or exp_map.get().strip(),
+                            exp_state["seg_party"] or exp_party.get(), int(t), exp.gained, round(exp.gained_pct, 2),
+                            int(exp.rate()), round(exp.pct_rate(), 2), exp.levelups,
+                            last.get("cur", ""), last.get("need", "")])
+        except Exception as e:  # noqa: BLE001
+            dlog("EXP-LOG-ERR", repr(e))
+
+    def exp_loop():
+        while exp.running:
+            t0 = time.time()
+            try:
+                raw, rd = exp_state["ocr"].read_exp(cfg["exp_region"])
+                exp_state["raw"] = raw
+                dlog("EXP", raw, rd)
+                exp.feed(rd)
+            except Exception as e:  # noqa: BLE001
+                dlog("EXP-ERR", repr(e))
+                exp.feed(None)
+            time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
+
+    def exp_begin_segment():
+        exp_state["seg_map"] = exp_map.get().strip() or "(이름 없음)"
+        exp_state["seg_party"] = exp_party.get()
+        cfg["exp_map"], cfg["exp_party"] = exp_map.get().strip(), exp_party.get()
+        save_config(cfg)
+
+    def exp_toggle():
+        if exp.running:
+            exp.pause()
+            exp_write("정지")
+            exp_go.configure(text="▶ 측정", bg="#2f9e44")
+            exp_update()
+            return
+        if not cfg.get("exp_region"):
+            info("먼저 경험치 숫자가 있는 곳을 드래그해서 지정하세요.")
+            select_region("exp_region")
+            return
+        if exp_state["ocr"] is None:
+            try:
+                exp_state["ocr"] = ScreenOCR("en", 3.0)
+            except Exception as e:  # noqa: BLE001
+                info("OCR 준비 실패: " + str(e), "err")
+                return
+        if exp_state["seg_map"] is None:
+            exp_begin_segment()
+        exp.start()
+        exp_state["last_log"] = time.time()
+        exp_go.configure(text="■ 정지", bg="#c92a2a")
+        exp_state["thread"] = threading.Thread(target=exp_loop, daemon=True)
+        exp_state["thread"].start()
+        exp_update()
+
+    def exp_reset():
+        was = exp.running
+        exp.pause()
+        exp_write("종료")
+        exp.reset()
+        exp_state["seg_map"] = None
+        exp_go.configure(text="▶ 측정", bg="#2f9e44")
+        if was:
+            exp_toggle()
+        exp_update()
+
+    def exp_seg_changed(_e=None):
+        # 사냥터/파티 인원을 바꾸면: 지금까지 기록을 마감하고 새로 측정 (사냥터별로 나눠서 비교하려고)
+        if exp_state["seg_map"] is None:
+            cfg["exp_map"], cfg["exp_party"] = exp_map.get().strip(), exp_party.get()
+            save_config(cfg)
+            return
+        if (exp_map.get().strip() or "(이름 없음)") == exp_state["seg_map"] and exp_party.get() == exp_state["seg_party"]:
+            return
+        exp_reset()
+        exp_begin_segment()
+        info(f"새 측정 시작: {exp_state['seg_map']} / 파티 {exp_state['seg_party']}명")
+
+    exp_map_entry.bind("<Return>", exp_seg_changed)
+    exp_map_entry.bind("<FocusOut>", exp_seg_changed)
+    exp_party_box.bind("<<ComboboxSelected>>", exp_seg_changed)
+
+    def exp_open_log():
+        if not os.path.exists(EXP_LOG_PATH):
+            info("아직 경험치 기록이 없어요. 1분 이상 측정하면 생겨요.")
+            return
+        try:
+            os.startfile(EXP_LOG_PATH)  # noqa: S606 (윈도우)
+        except Exception:  # noqa: BLE001
+            info("기록 파일: " + EXP_LOG_PATH)
+
+    def exp_update():
+        t = exp.total_time()
+        if not exp.running and t == 0 and exp.gained == 0:
+            txt = ("⏱ 경험치 측정: [영역]으로 경험치 숫자를 지정 → [▶ 측정] (F7)" if not cfg.get("exp_region")
+                   else "⏱ 경험치 측정 준비됨 → [▶ 측정] 또는 F7")
+        else:
+            txt = (f"⏱ {fmt_hms(t)}   +{exp.gained:,} ({exp.gained_pct:.2f}%)   "
+                   f"시간당 {exp.rate():,.0f} ({exp.pct_rate():.1f}%)   레벨업까지 {fmt_eta(exp.eta_sec())}")
+            if exp.levelups:
+                txt += f"   🎉 레벨업 {exp.levelups}번"
+            if exp.running and exp.fails >= 3:
+                txt += "\n⚠ 경험치 숫자를 못 읽고 있어요 → [영역]으로 다시 지정"
+            elif not exp.running:
+                txt += "   (일시정지)"
+        exp_lbl.configure(text=txt)
+
+    def exp_tick():
+        exp_update()
+        if exp.running and time.time() - exp_state["last_log"] >= 60:
+            exp_state["last_log"] = time.time()
+            exp_write("중간")
+        root.after(1000, exp_tick)
+
+    def exp_show(on=None):
+        on = (not exp_state["shown"]) if on is None else on
+        if on and not exp_state["shown"]:
+            exp_bar.pack(fill="x", before=body)
+        elif not on and exp_state["shown"]:
+            exp_bar.pack_forget()
+        exp_state["shown"] = on
+        cfg["exp_show"] = on
+        save_config(cfg)
+
+    ebtn("기록", exp_open_log)
+    ebtn("영역", lambda: select_region("exp_region"))
+    ebtn("리셋", exp_reset)
+    exp_go = ebtn("▶ 측정", exp_toggle, "#2f9e44")
+
     body = tk.Text(root, bg="#14161c", fg="#e8ecf4", bd=0, wrap="word",
                    font=("Malgun Gothic", cfg["font_size"]), padx=10, pady=8)
     # --- 내 채팅 보내기 (한국어 -> 외국어) -----------------------------------
@@ -1963,9 +2315,11 @@ def run_app():
         render()
 
     # --- 영역 선택 ---------------------------------------------------------
-    def select_region():
+    def select_region(target="region"):
+        is_exp = target == "exp_region"
         was_running = state["running"]
-        stop()
+        if not is_exp:
+            stop()
         sel = tk.Toplevel(root)
         sel.attributes("-fullscreen", True)
         sel.attributes("-alpha", 0.30)
@@ -1975,7 +2329,8 @@ def run_app():
         canvas.pack(fill="both", expand=True)
         canvas.create_text(sel.winfo_screenwidth() // 2, 60, fill="white",
                            font=("Malgun Gothic", 18, "bold"),
-                           text="채팅 글자가 있는 부분만 드래그하세요  (취소: ESC)")
+                           text=("경험치 숫자(예: 12,345 [12.34%])가 있는 부분만 드래그하세요  (취소: ESC)" if is_exp
+                                 else "채팅 글자가 있는 부분만 드래그하세요  (취소: ESC)"))
         pos = {}
 
         def down(e):
@@ -1993,11 +2348,15 @@ def run_app():
             sel.destroy()
             left, top = min(x0, x1), min(y0, y1)
             w, h = abs(x1 - x0), abs(y1 - y0)
-            if w < 40 or h < 15:
-                info("영역이 너무 작아요. F9로 다시 선택하세요.", "err")
+            if w < (20 if is_exp else 40) or h < (8 if is_exp else 15):
+                info("영역이 너무 작아요. 다시 선택하세요.", "err")
                 return
-            cfg["region"] = [left, top, w, h]
+            cfg[target] = [left, top, w, h]
             save_config(cfg)
+            if is_exp:
+                info(f"경험치 영역 저장 완료 ({w}x{h}). [▶ 측정] 또는 F7로 시작하세요.")
+                exp_show(True)
+                return
             info(f"채팅창 영역 저장 완료 ({w}x{h}). F8로 시작하세요.")
             if was_running:
                 start()
@@ -2296,6 +2655,9 @@ def run_app():
     root.after(30_000, autosave)
 
     def on_close():
+        if exp.running:
+            exp.pause()
+            exp_write("종료")
         memory.save()
         state["running"] = False
         cfg["overlay_geometry"] = root.geometry()
@@ -2315,11 +2677,13 @@ def run_app():
     if ai.enabled:
         ai_btn = btn("AI 꺼짐" if cfg.get("ai_paused") else "AI 켜짐", toggle_ai)
     btn("사전", reload_glossary)
+    btn("경험치", lambda: exp_show())
     btn("영역(F9)", select_region)
     power_btn.configure(command=toggle)
 
     root.bind("<F8>", lambda e: toggle())
     root.bind("<F9>", lambda e: select_region())
+    root.bind("<F7>", lambda e: exp_toggle())
     root.protocol("WM_DELETE_WINDOW", on_close)
 
     # 게임 창에 포커스가 있어도 F8/F9가 먹도록 (가능할 때만)
@@ -2327,6 +2691,7 @@ def run_app():
         import keyboard
         keyboard.add_hotkey("f8", lambda: root.after(0, toggle))
         keyboard.add_hotkey("f9", lambda: root.after(0, select_region))
+        keyboard.add_hotkey("f7", lambda: root.after(0, exp_toggle))
     except Exception:  # noqa: BLE001
         info("전역 단축키를 못 켰어요. 오버레이 버튼을 쓰거나 관리자 권한으로 실행하세요.", "err")
 
@@ -2350,6 +2715,9 @@ def run_app():
     elif cfg.get("region"):
         info("저장된 채팅창 영역이 있어요. F8로 바로 시작할 수 있어요.")
 
+    if cfg.get("exp_show"):
+        exp_show(True)
+    root.after(1000, exp_tick)
     root.after(150, pump)
     root.mainloop()
 
