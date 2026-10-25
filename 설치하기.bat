@@ -6,16 +6,22 @@ echo ==========================================
 echo   메이플 채팅 번역기 설치 (처음 한 번만)
 echo ==========================================
 echo.
-where py >nul 2>nul && (set PY=py -3) || (
-  where python >nul 2>nul && (set PY=python) || (set PY=)
-)
-if "%PY%"=="" (
+rem --- 진짜 파이썬 찾기 (윈도우 스토어 가짜 python 은 건너뜀) ---
+set "PY="
+py -3 -c "import sys" >nul 2>nul && set "PY=py -3"
+if not defined PY python -c "import sys" >nul 2>nul && set "PY=python"
+if not defined PY for %%V in (313 312 311 310) do if not defined PY if exist "%LocalAppData%\Programs\Python\Python%%V\python.exe" set "PY="%LocalAppData%\Programs\Python\Python%%V\python.exe""
+if not defined PY for %%V in (313 312 311 310) do if not defined PY if exist "%ProgramFiles%\Python%%V\python.exe" set "PY="%ProgramFiles%\Python%%V\python.exe""
+if not defined PY (
   echo [1/3] 파이썬이 없어서 설치합니다. 잠시 기다려 주세요...
-  winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
+  winget install -e --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements
+  if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set "PY="%LocalAppData%\Programs\Python\Python312\python.exe""
+)
+if not defined PY (
   echo.
-  echo 파이썬 설치가 끝났어요. 이 창을 닫고 설치하기.bat 를 한 번 더 실행해 주세요.
-  echo ^(winget 오류가 나면 https://www.python.org/downloads/ 에서 설치하고,
-  echo  설치 첫 화면에서 "Add python.exe to PATH" 를 꼭 체크하세요.^)
+  echo 파이썬 자동 설치가 안 됐어요.
+  echo https://www.python.org/downloads/ 에서 직접 설치하고,
+  echo 설치 첫 화면에서 "Add python.exe to PATH" 를 꼭 체크한 뒤 이 파일을 다시 실행하세요.
   pause
   exit /b
 )
@@ -23,11 +29,11 @@ echo [1/3] 파이썬 확인 완료
 %PY% --version
 echo.
 echo [2/3] 필요한 부품 설치 중...
-%PY% -m pip install --upgrade pip >nul
-%PY% -m pip install mss pillow winocr deep-translator keyboard
+%PY% -m pip install --upgrade pip >nul 2>nul
+%PY% -m pip install mss pillow winocr deep-translator keyboard requests
 if errorlevel 1 (
   echo.
-  echo 설치 중 오류가 났어요. 화면을 캡처해서 Claude에게 보내주세요.
+  echo 설치 중 오류가 났어요. 화면을 캡처해서 보내주세요.
   pause
   exit /b
 )

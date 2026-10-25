@@ -1,1 +1,1 @@
-{"version": 48, "note": "다른 사람도 쓸 수 있게: 처음 켤 때 게임 닉네임 물어보기, 개인 이름 표시 제거", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 49, "note": "설치 파일 수정: 윈도우 스토어 가짜 python 을 진짜로 착각하던 문제, 파이썬 자동 설치 후 바로 이어서 설치", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
