@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 52  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 53  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1103,8 +1103,13 @@ OCR_NOTICE = [None]  # 화면에 한 번 알려줄 OCR 관련 안내
 
 # ---- 경험치 측정: 화면 아래 경험치 숫자를 읽어서 시간당 경험치 계산 ----
 EXP_LOG_PATH = os.path.join(APP_DIR, "exp_log.csv")
-_EXP_PCT_RE = re.compile(r"(\d{1,3}(?:[.,]\d{1,3})?)\s*%")
+# 레벨별 필요 경험치 (클래식 월드, meowdb EXP 표). EXP_TABLE[레벨] = 그 레벨에서 다음 레벨까지 필요한 경험치
+EXP_TABLE = [0] + [15, 34, 57, 92, 135, 372, 560, 840, 1242, 1716, 2360, 3216, 4200, 5460, 7050, 8840, 11040, 13716, 16680, 20216, 24402, 28980, 34320, 40512, 47216, 54900, 63666, 73080, 83720, 95700, 108480, 122760, 138666, 155540, 174216, 194832, 216600, 240500, 266682, 294216, 324240, 356916, 391160, 428280, 468450, 510420, 555680, 604416, 655200, 709716, 748608, 789631, 832902, 878545, 926689, 977471, 1031036, 1087536, 1147132, 1209994, 1276301, 1346242, 1420016, 1497832, 1579913, 1666492, 1757815, 1854143, 1955750, 2062925, 2175973, 2295216, 2420993, 2553663, 2693603, 2841212, 2996910, 3161140, 3334370, 3517093, 3709829, 3913127, 4127566, 4353756, 4592341, 4844001, 5109452, 5389449, 5684790, 11938059, 25069923, 52646838, 110558359, 232172553, 487562361, 1023880958, 2150150011, 4515315023, 9482161548]
+
+
+_EXP_PCT_RE = re.compile(r"(\d{1,4})[.,](\d{2})\s*[%)\]]")
 _EXP_RATIO_RE = re.compile(r"(\d[\d,.]*)\s*/\s*(\d[\d,.]*)")
+_EXP_NUM_RE = re.compile(r"\d{1,3}(?:[,.]\d{3})+|\d{3,}")
 
 
 def _exp_int(s):
@@ -1113,48 +1118,50 @@ def _exp_int(s):
 
 
 def parse_exp(text):
-    """'12,345 [12.34%]', 'EXP 12345 / 67890', '12345(12.34%)' 같은 글자에서
-    {"cur": 현재 경험치, "need": 필요 경험치 또는 None, "pct": 퍼센트 또는 None} 을 뽑음."""
+    """경험치 줄 글자에서 {"cur": 현재 경험치(틀릴 수 있음), "need": 필요 경험치 또는 None, "pct": 퍼센트} 를 뽑음.
+    클래식 월드 표기: 'EXP 175,988 [44.99%]'. 퍼센트가 제일 정확하게 읽혀서 퍼센트를 기준으로 씀."""
     if not text:
         return None
     t = text
-    # OCR 이 숫자를 글자로 잘못 읽는 경우 (숫자 사이에 낀 것만)
-    for _ in range(4):
+    # OCR 이 숫자를 글자로 잘못 읽는 경우 (숫자 옆에 붙은 것만): O->0, l/I->1, S->5
+    for _ in range(5):
         t2 = re.sub(r"(?<=[\d,.])[Oo](?=[\d,.%Oo\s\]\)/]|$)|(?<=[\s\[(])[Oo](?=[.,]\d)", "0", t)
         t2 = re.sub(r"(?<=[\d,.])[lI|](?=[\d,.%lI|\s\]\)/]|$)", "1", t2)
+        t2 = re.sub(r"(?<=[\d,.])[Ss](?=[\d,.%Ss\s\]\)/]|$)|(?<=[\s\[(])[Ss](?=[\d.,])", "5", t2)
         if t2 == t:
             break
         t = t2
     pct = None
-    m = _EXP_PCT_RE.search(t)
-    if m:
-        try:
-            v = float(m.group(1).replace(",", "."))
-            if 0 <= v <= 100:
-                pct = v
-        except ValueError:
-            pass
-        t = t[:m.start()] + " " + t[m.end():]
+    m = None
+    for m in _EXP_PCT_RE.finditer(t):
+        whole, dec = m.group(1), m.group(2)
+        v = float(whole + "." + dec)
+        while v > 100 and len(whole) > 1:   # '[44.99%' 의 '[' 를 1로 읽은 경우 -> 앞자리 버림
+            whole = whole[1:]
+            v = float(whole + "." + dec)
+        if 0 <= v <= 100:
+            pct = v
+            break
+    if pct is None:
+        return None
+    before = t[:m.start()]
     cur = need = None
-    r = _EXP_RATIO_RE.search(t)
+    r = _EXP_RATIO_RE.search(before)
     if r:
         cur, need = _exp_int(r.group(1)), _exp_int(r.group(2))
         if need and cur is not None and cur > need:
             cur = need = None
     if cur is None:
-        nums = [_exp_int(x) for x in re.findall(r"\d[\d,]*", t)]
+        nums = [_exp_int(x) for x in _EXP_NUM_RE.findall(before)]
         nums = [n for n in nums if n is not None]
         if nums:
-            cur = max(nums)
-    if cur is None:
-        return None
-    if not need and pct and pct >= 0.5:
-        need = int(round(cur * 100 / pct))
+            cur = nums[-1]
     return {"cur": cur, "need": need, "pct": pct}
 
 
 class ExpTracker:
-    """경험치 읽은 값을 받아서 누적 경험치·시간당 경험치를 계산 (레벨업, OCR 오독 처리)."""
+    """경험치 읽은 값을 받아서 누적 경험치·시간당 경험치를 계산.
+    퍼센트(소수 둘째 자리)를 기준으로 계산하고, 숫자는 퍼센트와 맞을 때만 씀 (OCR 이 3/5 를 자주 헷갈림)."""
 
     def __init__(self):
         self.reset()
@@ -1163,12 +1170,16 @@ class ExpTracker:
         self.running = False
         self.elapsed = 0.0
         self.t_start = None
-        self.gained = 0
+        self.gained = 0          # 필요 경험치를 알게 된 뒤의 누적 경험치
         self.gained_pct = 0.0
+        self.unpriced = 0.0      # 필요 경험치를 아직 몰라서 경험치로 못 바꾼 퍼센트
         self.levelups = 0
-        self.last = None
-        self.odd = []          # 이상한 값이 연속으로 나오면 그걸 새 기준으로 인정
-        self.last_ok = None    # 마지막으로 제대로 읽은 시각
+        self.last = None         # {"cur","need","pct"} (cur/need 는 보정된 값)
+        self.odd = []
+        self.cands = []          # 필요 경험치 후보 (현재 경험치 ÷ 퍼센트)
+        self.need = None
+        self.level = None        # 레벨 표로 알아낸 현재 레벨
+        self.last_ok = None
         self.fails = 0
 
     def start(self):
@@ -1185,48 +1196,108 @@ class ExpTracker:
     def total_time(self):
         return self.elapsed + (time.time() - self.t_start if self.running and self.t_start else 0)
 
+    def _learn_need(self, rd):
+        """현재 경험치 ÷ 퍼센트로 필요 경험치를 추정 -> 레벨 표에서 가장 가까운 레벨로 맞춤."""
+        if self.level:
+            return
+        c, p = rd.get("cur"), rd["pct"]
+        cand = rd.get("need") or (c * 100 / p if c and c >= 100 and p >= 1 else None)
+        if not cand:
+            return
+        lv = None
+        for i in range(1, len(EXP_TABLE)):
+            if abs(EXP_TABLE[i] - cand) <= EXP_TABLE[i] * 0.01:
+                lv = i
+                break
+        self.cands = (self.cands + [lv])[-20:]
+        votes = {}
+        for x in self.cands:
+            if x:
+                votes[x] = votes.get(x, 0) + 1
+        if votes:
+            best = max(votes, key=votes.get)
+            if votes[best] >= 2:
+                self.set_level(best)
+
+    def set_level(self, lv):
+        self.level = lv
+        self.need = EXP_TABLE[lv] if 0 < lv < len(EXP_TABLE) else None
+        if self.need and self.unpriced:
+            self.gained += int(round(self.need * self.unpriced / 100))
+            self.unpriced = 0.0
+        if self.last and self.need:
+            self.last["need"] = self.need
+            self.last["cur"] = int(round(self.need * self.last["pct"] / 100))
+
+    def _cur(self, rd):
+        """퍼센트와 맞는 현재 경험치 (숫자를 잘못 읽었으면 퍼센트로 계산)."""
+        if not self.need:
+            return None
+        exp_c = self.need * rd["pct"] / 100
+        c = rd.get("cur")
+        if c is not None and abs(c - exp_c) <= max(60, self.need * 0.0015):
+            return c
+        return int(round(exp_c))
+
     def feed(self, rd):
         if not self.running:
             return
-        if not rd:
+        if not rd or rd.get("pct") is None:
             self.fails += 1
             return
         self.fails = 0
         self.last_ok = time.time()
+        self._learn_need(rd)
+        p = rd["pct"]
+        now = {"cur": self._cur(rd), "need": self.need, "pct": p}
         if self.last is None:
-            self.last = rd
+            self.last = now
             return
-        lc, ln, lp = self.last["cur"], self.last["need"], self.last["pct"]
-        c, n, p = rd["cur"], rd["need"], rd["pct"]
-        # 레벨업: 퍼센트가 크게 떨어지거나 경험치가 크게 줄어듦
-        lvl = (lp is not None and p is not None and lp - p > 40) or \
-              (c < lc * 0.5 and (lp is None or lp > 50) and (n is None or ln is None or n >= ln))
-        if lvl:
-            if ln:
-                self.gained += max(0, ln - lc) + c
+        lp = self.last["pct"]
+        if lp - p > 40:   # 레벨업
+            self.gained_pct += (100 - lp) + p
+            if self.last["need"] and self.last["cur"] is not None:
+                self.gained += max(0, self.last["need"] - self.last["cur"])
             else:
-                self.gained += c
-            self.gained_pct += (100 - (lp or 0)) + (p or 0)
+                self.unpriced += 100 - lp
             self.levelups += 1
-            self.last, self.odd = rd, []
+            self.cands, self.odd = [], []
+            self.last = {"cur": None, "need": None, "pct": p}
+            if self.level:
+                self.set_level(self.level + 1)   # 다음 레벨 필요 경험치는 표에서 바로
+                self.gained += int(round(self.need * p / 100)) if self.need else 0
+                if not self.need:
+                    self.unpriced += p
+            else:
+                self.need = None
+                self.unpriced += p   # 새 레벨 필요 경험치를 알게 되면 경험치로 바꿈
             return
-        d = c - lc
-        big = (ln and d > ln * 0.2) or (lp is not None and p is not None and p - lp > 20)
-        if d < 0 or big:
-            # 잘못 읽은 값일 가능성 -> 무시. 같은 쪽으로 3번 연속이면 그 값을 새 기준으로
-            self.odd.append(rd)
-            if len(self.odd) >= 3 and all(abs(o["cur"] - c) <= max(50, c * 0.02) for o in self.odd[-3:]):
-                self.last, self.odd = rd, []
+        dp = p - lp
+        if dp < 0 or dp > 15:
+            # 잘못 읽은 값 -> 무시. 비슷한 값이 3번 연속이면 그걸 새 기준으로
+            self.odd.append(p)
+            if len(self.odd) >= 3 and max(self.odd[-3:]) - min(self.odd[-3:]) <= 0.2:
+                self.last, self.odd = now, []
             return
         self.odd = []
-        self.gained += d
-        if lp is not None and p is not None:
-            self.gained_pct += max(0.0, p - lp)
-        self.last = rd
+        self.gained_pct += dp
+        if self.need:
+            if now["cur"] is not None and self.last["cur"] is not None and self.last["need"] == self.need:
+                self.gained += max(0, now["cur"] - self.last["cur"])
+            else:
+                self.gained += int(round(self.need * dp / 100))
+        else:
+            self.unpriced += dp
+        self.last = now
+
+    def gained_exp(self):
+        if self.unpriced and self.need:
+            return self.gained + int(round(self.need * self.unpriced / 100))
+        return self.gained
 
     def rate(self):
         t = self.total_time()
-        return self.gained / t * 3600 if t >= 20 else 0
+        return self.gained_exp() / t * 3600 if t >= 20 else 0
 
     def pct_rate(self):
         t = self.total_time()
@@ -1234,9 +1305,9 @@ class ExpTracker:
 
     def eta_sec(self):
         r = self.rate()
-        if not r or not self.last or not self.last["need"]:
+        if not r or not self.need or not self.last:
             return None
-        left = max(0, self.last["need"] - self.last["cur"])
+        left = max(0, self.need * (100 - self.last["pct"]) / 100)
         return left / r * 3600
 
 
@@ -1921,9 +1992,9 @@ def run_app():
                                 "시간당경험치", "시간당퍼센트", "레벨업", "현재경험치", "필요경험치"])
                 last = exp.last or {}
                 w.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), kind, exp_state["seg_map"] or exp_map.get().strip(),
-                            exp_state["seg_party"] or exp_party.get(), int(t), exp.gained, round(exp.gained_pct, 2),
+                            exp_state["seg_party"] or exp_party.get(), int(t), exp.gained_exp(), round(exp.gained_pct, 2),
                             int(exp.rate()), round(exp.pct_rate(), 2), exp.levelups,
-                            last.get("cur", ""), last.get("need", "")])
+                            last.get("cur") or "", exp.need or ""])
         except Exception as e:  # noqa: BLE001
             dlog("EXP-LOG-ERR", repr(e))
 
@@ -2010,11 +2081,11 @@ def run_app():
 
     def exp_update():
         t = exp.total_time()
-        if not exp.running and t == 0 and exp.gained == 0:
+        if not exp.running and t == 0 and exp.gained_exp() == 0:
             txt = ("⏱ 경험치 측정: [영역]으로 경험치 숫자를 지정 → [▶ 측정] (F7)" if not cfg.get("exp_region")
                    else "⏱ 경험치 측정 준비됨 → [▶ 측정] 또는 F7")
         else:
-            txt = (f"⏱ {fmt_hms(t)}   +{exp.gained:,} ({exp.gained_pct:.2f}%)   "
+            txt = (f"⏱ {fmt_hms(t)}   " + (f"Lv{exp.level}  " if exp.level else "") + f"+{exp.gained_exp():,} ({exp.gained_pct:.2f}%)   "
                    f"시간당 {exp.rate():,.0f} ({exp.pct_rate():.1f}%)   레벨업까지 {fmt_eta(exp.eta_sec())}")
             if exp.levelups:
                 txt += f"   🎉 레벨업 {exp.levelups}번"

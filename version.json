@@ -1,1 +1,1 @@
-{"version": 52, "note": "경험치 측정 추가: 타이머, 먹은 경험치, 시간당 경험치, 사냥터·파티별 기록(exp_log.csv)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 53, "note": "경험치 측정 정확도 개선: 퍼센트 기준 계산 + 레벨별 필요 경험치 표 적용 (숫자 오독 무시)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
