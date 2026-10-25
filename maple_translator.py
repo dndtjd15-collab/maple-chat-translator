@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 23  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 24  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -408,6 +408,9 @@ def parse_line(raw):
     형식 2) 닉네임 : 대화           (일반/파티)
     배지는 있는데 대화가 없으면 ('닉네임', '', 채널) -> 다음 줄에 대화가 이어짐."""
     line = raw.strip()
+    w = re.match(r"^\s*([A-Za-z0-9가-힣_]{3,13})\s*(>>|<<|»|«)\s*(.+)$", line)
+    if w:  # 귓속말: 'Name>> 내용' (받은 귓) / 'Name<< 내용' (보낸 귓)
+        return w.group(1), w.group(3).strip(), ("받은 귓" if w.group(2) in (">>", "»") else "보낸 귓")
     if "\x01" in line:  # 배지 위치로 이미 나눠진 줄
         name, ch, msg = (line.split("\x01") + ["", ""])[:3]
         return (_clean_name(name) or None), msg.strip(), (ch or None)
@@ -884,7 +887,7 @@ def _looks_like_item(item):
 
 
 # OCR이 S> B> 를 S) 5> B) 8> S» 처럼 잘못 읽는 경우를 원래대로 되돌림
-_TRADE_TAG_RE = re.compile(r"(?:(?<=^)|(?<=[\s:;/,\]]))([SsBbTtLlFf5$8])\s?[>)»›\}]\s*")
+_TRADE_TAG_RE = re.compile(r"(?:(?<=^)|(?<=[\s:;/,\]]))([SsBbTtLlFf5$8])\s?[>)»›\}<]\s*")
 _TRADE_MAP = {"5": "S", "$": "S", "8": "B"}
 
 
@@ -1869,7 +1872,9 @@ def run_app():
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
-                    if name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower():
+                    if ch in ("받은 귓", "보낸 귓"):
+                        kind = "귓속말"
+                    if ch == "보낸 귓" or (name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower()):
                         ordered.append((cur_key, "now", (name, msg, msg, None, kind, ch)))
                         continue
                     plain = re.sub(r"\[[^\]]*\]", "", msg)
@@ -1901,7 +1906,9 @@ def run_app():
                     else:
                         name, msg, prot, slots, kind, ch = batch[val]
                         kor = glossary.restore(prot, slots)  # 용어만 한국어로 바꾼 원문 (찜 검색용)
-                        out_q.put((name, glossary.restore(translated[val], slots), msg, None, kind, eid, ch,
+                        tr_text = glossary.restore(translated[val], slots)
+                        dlog("TR", msg, "=>", tr_text)
+                        out_q.put((name, tr_text, msg, None, kind, eid, ch,
                                    kor, trade_of(msg)))
                         if ai.enabled and not cfg.get("ai_paused"):
                             ai_q.put((eid, msg))

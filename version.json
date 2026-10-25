@@ -1,1 +1,1 @@
-{"version": 23, "note": "한국 유저 말투 패치: 금액 17만5천 표기, 25채널/2개/5힘/공79/크뎀3, 장공·목장갑·본헬름·비니·라벨링 등 용어 100여 개, 닉네임 못 읽은 줄 다시 읽기", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 24, "note": "귓속말(Name>> / Name<<) 인식, 번역 결과 기록(TR), 장마·완마·펫 이속 등 용어 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
