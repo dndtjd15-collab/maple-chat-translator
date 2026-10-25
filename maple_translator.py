@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 22  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 23  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -189,6 +189,17 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z])",
                       money, text, flags=re.IGNORECASE)
 
+        # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
+        text = re.sub(r"(?<![A-Za-z])(?:ch|cc)\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
+                      lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
+        _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "watk": "공", "ma": "마",
+                 "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀"}
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|att|acc|crit|cdmg|cd)(?![A-Za-z])",
+                      lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
+                      lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
+
         # 3) +2 / 60% 같은 숫자는 그대로 두되 주문서 표기는 보존
         text = re.sub(r"(?<!\d)(10|30|60|70|100)\s*%", lambda m: hold(m.group(1) + "%"), text)
 
@@ -226,6 +237,7 @@ class Glossary:
         if missing:
             out = out + "  (" + ", ".join(missing) + ")"
         out = apply_ko_terms(re.sub(r"\s+([,.!?])", r"\1", out))
+        out = re.sub(r"\+\s+(\d)", r"+\1", out)
         out = re.sub(r"\[\s+", "[", out)
         out = re.sub(r"\s+\]", "]", out)
         return re.sub(r"\s{2,}", " ", out).strip()
@@ -236,12 +248,15 @@ def format_meso(value):
     if value >= 100_000_000:
         eok, rest = divmod(value, 100_000_000)
         man = rest // 10_000
-        return f"{eok}억 {man}만 메소" if man else f"{eok}억 메소"
-    if value >= 10_000:
-        man = value / 10_000
-        man_str = f"{man:.1f}".rstrip("0").rstrip(".")
-        return f"{man_str}만 메소"
-    return f"{value:,} 메소"
+        return f"{eok}억{man}만" if man else f"{eok}억"
+    if value >= 10_000:  # 한국식: 17만5천 / 1만8천 / 120만
+        man, rest = divmod(value, 10_000)
+        chun = rest // 1_000
+        return f"{man}만{chun}천" if chun else f"{man}만"
+    if value >= 1_000:
+        chun, rest = divmod(value, 1_000)
+        return f"{chun}천{rest // 100}백" if rest >= 100 else f"{chun}천"
+    return f"{value:,}메소"
 
 
 # ----------------------------------------------------------------------------
@@ -682,6 +697,7 @@ class ScreenOCR:
     def _apply_badges(self, img, lines):
         """배지가 있는 줄을 '닉네임 \x01채널\x01 대화' 형태로 다시 조립."""
         out, badges = [], []
+        retry_left = [4]  # 한 번에 최대 4줄까지만 다시 읽기 (속도)
         for text, rect, ws in lines:
             found = None
             try:
@@ -706,6 +722,11 @@ class ScreenOCR:
                     cut = int(len(t) * (b1 - wx) / max(1, ww))
                     if t[cut:].strip():
                         msg_parts.append(t[cut:])
+            if not name_parts and b0 > 12 and retry_left[0] > 0:
+                retry_left[0] -= 1
+                guess = self._read_name_left(rect, b0)  # 닉네임만 따로 크게 잘라서 다시 읽기
+                if guess:
+                    name_parts = [guess]
             msg = " ".join(msg_parts).strip()
             msg = re.sub(r"^.{0,6}?[:：;]\s*", "", msg)            # 배지 뒤 콜론까지 (귀 아이콘 찌꺼기 포함) 제거
             msg = re.sub(r"^[|!\\/()\[\]{}<>.,'`~]+\s*", "", msg)  # 앞에 남은 기호 찌꺼기
@@ -718,6 +739,31 @@ class ScreenOCR:
             name, rect, ws, msg = out[idx]
             out[idx] = (f"{name}\x01{ch}\x01{msg}", rect, ws)
         return out
+
+    def _read_name_left(self, rect, b0):
+        """배지 왼쪽(닉네임 자리)만 잘라서 확대 + 흑백 대비를 높여 다시 OCR."""
+        try:
+            from PIL import Image, ImageOps
+            import asyncio
+            import winocr
+            x, y, w, h = rect
+            crop = self._orig.crop((0, max(0, y - 1), max(1, b0 - 1), min(self._orig.height, y + h + 1)))
+            gray = ImageOps.autocontrast(crop.convert("L"))
+            # 밝은 글씨(어두운 배경)든 어두운 글씨(밝은 배경)든 '검은 글씨/흰 배경'으로 맞춤
+            if sum(gray.getdata()) / max(1, gray.width * gray.height) < 128:
+                gray = ImageOps.invert(gray)
+            big = gray.resize((gray.width * 4, gray.height * 4), Image.LANCZOS).convert("RGB")
+            pad = Image.new("RGB", (big.width + 40, big.height + 30), (255, 255, 255))
+            pad.paste(big, (20, 15))
+            res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(pad, "en")))
+            t = " ".join(ln.text for ln in (getattr(res, "lines", None) or [])).strip()
+            t = re.sub(r"[^A-Za-z0-9_ ]", "", t).strip()
+            t = re.sub(r"^[Il1|](?=[A-Z])", "", t)  # 왼쪽 테두리를 I 로 읽은 것 제거
+            dlog("NAME-RETRY", t)
+            return t if len(t) >= 3 else None
+        except Exception as e:  # noqa: BLE001
+            dlog("NAME-RETRY-ERR", repr(e))
+            return None
 
     def _read_channels(self, items):
         from PIL import Image
@@ -949,7 +995,7 @@ _SELL_RE = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\bsell(?:ing)?\b|\bvendo\b|\b
                       r"|\[팝니다\]", re.I)
 _BUY_RE = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\bbuy(?:ing)?\b|\bcompro\b|\bbibili\b|\[삽니다\]", re.I)
 _MONEY_RE = re.compile(r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z])", re.I)
-_MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:\s*(\d+)\s*만)?|(\d+(?:\.\d+)?)\s*만(?:\s*(\d+)\s*천)?")
+_MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:(\d+)만)?|(\d+(?:\.\d+)?)\s*만(?:(\d+)천)?|(?<![\d만])(\d+)천(?:(\d)백)?")
 
 
 # 찜 키워드(한국어) -> 같이 찾을 영어/줄임말
@@ -994,8 +1040,10 @@ def prices_in(text):
     for m in _MONEY_KO_RE.finditer(text):
         if m.group(1):
             out.append(int(float(m.group(1)) * 100_000_000 + int(m.group(2) or 0) * 10_000))
-        else:
+        elif m.group(3):
             out.append(int(float(m.group(3)) * 10_000 + int(m.group(4) or 0) * 1_000))
+        else:
+            out.append(int(m.group(5)) * 1_000 + int(m.group(6) or 0) * 100)
     return [p for p in out if p >= 1000]
 
 
