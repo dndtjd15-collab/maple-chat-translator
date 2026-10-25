@@ -1,1 +1,1 @@
-{"version": 27, "note": "게임 공지·가챠 알림은 아예 안 보이게 (config hide_notice)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 28, "note": "번역 실패한 줄 자동 재번역(일반 채팅 영어로 남던 문제), 확성기 판별 개선(분홍 확성기가 파티로 뜨던 문제), 스타라이트 하트 셉터 등 용어", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

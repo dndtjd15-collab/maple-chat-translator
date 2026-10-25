@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 27  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 28  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -345,6 +345,7 @@ class Translator:
     def translate_many(self, texts):
         """texts 목록을 번역해서 같은 순서로 돌려줌. 실패하면 None 자리에 원문."""
         results = list(texts)
+        self.failed = set()  # 번역 실패해서 원문 그대로 둔 줄 번호 (나중에 다시 시도)
         todo = [i for i, t in enumerate(texts) if self.needs_translation(t)]
         for i in list(todo):
             if texts[i] in self.cache:
@@ -356,20 +357,26 @@ class Translator:
         try:
             out = self._request(joined)
         except Exception as e:  # noqa: BLE001
+            self.failed = set(todo)
+            dlog("TR-ERR", repr(e))
             return results, f"번역 엔진이 모두 잠깐 막혔어요 ({e}). 곧 자동으로 다시 돼요"
         parts = out.split("\n")
         if len(parts) != len(todo):
             # 줄 수가 안 맞으면 한 줄씩 다시 (드문 경우)
             parts = []
+            dlog("TR-SPLIT", len(parts), len(todo))
             for i in todo:
                 try:
                     parts.append(self._request(texts[i]))
-                except Exception:  # noqa: BLE001
-                    parts.append(texts[i])
+                except Exception as e:  # noqa: BLE001
+                    dlog("TR-ERR", repr(e))
+                    parts.append(None)
         for i, tr in zip(todo, parts):
-            tr = tr.strip() or texts[i]
-            results[i] = tr
-            self.cache[texts[i]] = tr
+            if not tr or not tr.strip():
+                self.failed.add(i)  # 실패한 줄은 캐시에 넣지 않음 -> 다음에 다시 번역
+                continue
+            results[i] = tr.strip()
+            self.cache[texts[i]] = tr.strip()
         if len(self.cache) > 3000:
             self.cache.clear()
         return results, None
@@ -1139,21 +1146,22 @@ def classify_line(img, rect):
         return "일반"
     pixels = list(img.crop((x0, y0, x1, y1)).getdata())[::2]
     n = len(pixels) or 1
-    # 1) 배경색: 확성기 줄은 '한 가지 색으로 꽉 칠해진' 배경이라,
-    #    줄에서 가장 많은 색이 35% 이상이고 그게 확성기 색이어야 함
-    #    (채팅창이 반투명이라 뒤 맵 배경 색이 비쳐도 확성기로 착각하지 않게)
-    buckets = {}
+    # 1) 배경색: 확성기 줄은 배경이 한 색으로 칠해져 있음.
+    #    밝기와 상관없이 '색 비율'(chroma)이 확성기 색과 같은 픽셀이 줄의 30% 이상이면 확성기
+    #    (채팅창 투명도에 따라 확성기 색이 밝게/어둡게 보여도 구분, 얇은 파티 글자는 30%가 안 됨)
+    refs = [(kind, _chroma(ref)) for kind, ref, _c in BG_KINDS]
+    hits = {kind: 0 for kind, _r in refs}
     for p in pixels:
-        key = (p[0] // 12, p[1] // 12, p[2] // 12)
-        buckets[key] = buckets.get(key, 0) + 1
-    top_key, top_n = max(buckets.items(), key=lambda kv: kv[1])
-    top_color = tuple(v * 12 + 6 for v in top_key)
-    if top_n / n >= 0.35 and sum(top_color) > 150 and max(top_color) - min(top_color) > 25:
-        # 밝기와 상관없이 '색 비율'로 비교 (채팅창 투명도에 따라 확성기 색이 밝게/어둡게 보임)
-        tc = _chroma(top_color)
-        for kind, ref, _c in BG_KINDS:
-            if _dist(tc, _chroma(ref)) < 0.06:
-                return kind
+        if sum(p) <= 150 or max(p) - min(p) <= 25:
+            continue
+        pc = _chroma(p)
+        for kind, rc in refs:
+            if _dist(pc, rc) < 0.05:
+                hits[kind] += 1
+                break
+    best = max(hits.items(), key=lambda kv: kv[1])
+    if best[1] / n >= 0.30:
+        return best[0]
     # 2) 글자색 (밝은 픽셀 중 가장 많은 색)
     bright = [p for p in pixels if max(p) > 150]
     if len(bright) < 5:
@@ -1841,6 +1849,7 @@ def run_app():
     # --- 작업 스레드 -------------------------------------------------------
     pending = [None]
     owner = {}   # 화면 줄 키 -> 띄운 항목 id
+    retry = []   # 번역 실패해서 다시 시도할 줄 (id, 보호된 문장, 자리표시자)
     fixed = {}   # 항목 id -> 마지막으로 보낸 보완 정보
 
     def worker():
@@ -1924,8 +1933,20 @@ def run_app():
                     batch.append((name, msg, protected, slots, kind, ch))
                 err = None
                 translated = []
+                # 지난번에 번역 실패한 줄 다시 시도 (성공하면 화면의 그 줄만 바꿔줌)
+                if retry and time.time() - state.get("retry_at", 0) > 4:
+                    state["retry_at"] = time.time()
+                    rt, _rerr = translator.translate_many([r[1] for r in retry])
+                    still = []
+                    for i, (reid, rprot, rslots) in enumerate(retry):
+                        if i in translator.failed:
+                            still.append((reid, rprot, rslots))
+                        else:
+                            out_q.put(("__retr__", reid, glossary.restore(rt[i], rslots)))
+                    retry[:] = still[-30:]
                 if batch:
                     translated, err = translator.translate_many([b[2] for b in batch])
+                    failed_now = set(translator.failed)
                 for okeys, how, val in ordered:
                     eid = next_id()
                     for okey in okeys:
@@ -1941,6 +1962,8 @@ def run_app():
                         kor = glossary.restore(prot, slots)  # 용어만 한국어로 바꾼 원문 (찜 검색용)
                         tr_text = glossary.restore(translated[val], slots)
                         dlog("TR", msg, "=>", tr_text)
+                        if val in failed_now:
+                            retry.append((eid, prot, slots))
                         out_q.put((name, tr_text, msg, None, kind, eid, ch,
                                    kor, trade_of(msg)))
                         if ai.enabled and not cfg.get("ai_paused"):
@@ -1995,6 +2018,15 @@ def run_app():
                 item = out_q.get_nowait()
             except queue.Empty:
                 break
+            if item[0] == "__retr__":
+                for e in reversed(entries):
+                    if e[5] == item[1]:
+                        if not e[6]:  # AI 번역이 이미 왔으면 그대로 둠
+                            e[1] = item[2]
+                            check_watch(e)
+                        break
+                changed = True
+                continue
             if item[0] == "__fix__":
                 _f, fid, n2, c2, t2 = item
                 for e in reversed(entries):
