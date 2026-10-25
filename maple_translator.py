@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 21  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 22  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -954,12 +954,12 @@ _MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:\s*(\d+)\s*만)?|(\d+(?:\.\d
 
 # 찜 키워드(한국어) -> 같이 찾을 영어/줄임말
 WATCH_ALIASES = {
-    "귀고리지력": ["earringint", "귀지력", "귀고리지력"], "귀지력": ["earringint", "귀고리지력"],
+    "귀고리지력": ["earringint", "earint", "귀지력", "귀고리지력"], "귀지력": ["earringint", "귀고리지력"],
     "귀고리민첩": ["earringdex", "귀덱"], "귀고리힘": ["earringstr"], "귀고리운": ["earringluk"],
     "장갑공격력": ["gloveatt", "glovesatt", "장공"], "장공": ["gloveatt", "glovesatt", "장갑공격력"],
     "장갑마력": ["glovema", "glovesma", "장마"], "장마": ["glovema", "장갑마력"],
     "완드마력": ["wandma", "wandmatk", "완마"], "완마": ["wandma", "완드마력"],
-    "스태프마력": ["staffma", "staffmatk", "스마"], "스마": ["staffma", "스태프마력"],
+    "스태프마력": ["staffma", "staffmatk", "staffmatt", "스마"], "스마": ["staffma", "스태프마력"],
     "전신지력": ["overallint", "전지"], "전신민첩": ["overalldex", "전민"],
     "아대공격력": ["clawatt", "clawattack", "아대공"], "아대공": ["clawatt", "아대공격력"],
     "망토지력": ["capeint"], "망토민첩": ["capedex"],

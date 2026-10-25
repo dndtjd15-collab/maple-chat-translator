@@ -311,7 +311,18 @@
     "scroll for claw for att": "아대 공격력 주문서",
     "claw atk": "아대 공격력",
     "kfan": "태극부채",
-    "k fan": "태극부채"
+    "k fan": "태극부채",
+    "staffmatt": "스태프 마력",
+    "staff matt": "스태프 마력",
+    "wandmatt": "완드 마력",
+    "wand matt": "완드 마력",
+    "earint": "귀고리 지력",
+    "earlnt": "귀고리 지력",
+    "earluk": "귀고리 운",
+    "eardex": "귀고리 민첩",
+    "ear int": "귀고리 지력",
+    "ear luk": "귀고리 운",
+    "ear dex": "귀고리 민첩"
   },
   "terms_case": {
     "MA": "마력",
