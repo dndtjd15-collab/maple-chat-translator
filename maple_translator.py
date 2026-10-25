@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 41  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 42  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -246,7 +246,7 @@ class Glossary:
         missing = [s for i, s in enumerate(slots) if s not in out]
         if missing:
             out = out + "  (" + ", ".join(missing) + ")"
-        out = apply_ko_terms(re.sub(r"\s+([,.!?])", r"\1", out))
+        out = apply_ko_terms(re.sub(r"\s+([,.!?:])", r"\1", out))
         out = re.sub(r"\+\s+(\d)", r"+\1", out)
         out = re.sub(r"(\[(팝니다|삽니다|교환합니다|구합니다)\])(\s*,?\s*\1)+", r"\1", out)  # [팝니다] [팝니다] -> 하나로
         out = re.sub(r"\[\s+", "[", out)
