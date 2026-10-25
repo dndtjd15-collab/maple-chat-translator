@@ -820,7 +820,7 @@
     "hang in there": "힘내",
     "gogo": "고고",
     "black sack": "검은 자루",
-    "trash nx": "잡템 캐시",
+    "trash nx": "싼 캐시템",
     "lf>": "[구합니다]",
     "no bargains": "에누리 없음",
     "glass shoes": "유리 구두",
@@ -1045,7 +1045,14 @@
     "t0bi": "토비 표창",
     "i1bi": "일비 표창",
     "ilbis": "일비 표창",
-    "subis": "수비 표창"
+    "subis": "수비 표창",
+    "eva": "회피",
+    "avg": "평균",
+    "mystery": "미스테리",
+    "selling for": "[팝니다]",
+    "slot expansion": "슬롯 확장권",
+    "slot expansions": "슬롯 확장권",
+    "gloves crit chaos scroll": "장갑 크리티컬 혼돈의 주문서"
   },
   "terms_case": {
     "MA": "마력",

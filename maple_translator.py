@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 54  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 55  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -264,7 +264,10 @@ def format_meso(value):
         return f"{eok}억{man}만" if man else f"{eok}억"
     if value >= 10_000:  # 한국식: 17만5천 / 1만8천 / 120만
         man, rest = divmod(value, 10_000)
-        chun = rest // 1_000
+        chun, rest = divmod(rest, 1_000)
+        baek = rest // 100
+        if man < 100 and baek:  # 17.5k -> 1만7천5백 (백 단위를 버리면 가격이 틀어짐)
+            return f"{man}만{chun}천{baek}백" if chun else f"{man}만{baek}백"
         return f"{man}만{chun}천" if chun else f"{man}만"
     if value >= 1_000:
         chun, rest = divmod(value, 1_000)
@@ -478,7 +481,7 @@ def normalize(s):
     return re.sub(r"[^a-z0-9가-힣]", "", s.lower())
 
 
-_WORD_OK = re.compile(r"^[\[(\"'*]*((?=[A-Za-z']*[aeiouyAEIOUY])(?:[A-Z]?[a-z']+|[A-Z']+)|\d+([.,]\d+)?(?i:k|m|kk|%|x)?|[SBTLJ]>|(?i:ch|lv)\.?\d+|\d+(?i:[a-z]{1,4})|[A-Z]{2,5}|(?i:ok|k|u|ty|gz|lol|pm|pmo|pm0|nx|fm|cc|ea|obo|a/w|c/o|sry|brb|omw)|[:/&+\-<>]|>>|<<)[\])\"'.,!?:;~]*$")
+_WORD_OK = re.compile(r"^[\[(\"'*]*((?=[A-Za-z']*[aeiouyAEIOUY])(?:[A-Z]?[a-z']+|[A-Z']+)|\d+([.,]\d+)?(?i:k|m|kk|%|x)?|[SBTLJ]>|(?i:ch|lv)\.?\d+|\d+(?i:[a-z]{1,4})|[A-Z]{2,5}|(?i:ok|k|u|ty|gz|lol|pm|pmo|pm0|nx|fm|cc|ea|obo|a/w|c/o|sry|brb|omw|rn|tyty|thx|gj|gl|np|nvm|btw|wtf|smh|ngl|tbh)|[:/&+\-<>]|>>|<<)[\])\"'.,!?:;~]*$")
 
 
 _CHAT_SHORT = {"sry", "ok", "ty", "lol", "brb", "omw", "gz", "pm", "hi", "hey", "yo", "np", "gg", "plz", "pls"}
@@ -508,6 +511,8 @@ def text_quality(text):
     """OCR 결과가 얼마나 '사람이 쓴 글' 같은지 0~1 점수 (찌꺼기 걸러내기·두 OCR 결과 중 고르기용)."""
     t = re.sub(r"\x01[^\x01]*\x01", " ", text or "")
     t = re.sub(r"\[[^\]]*\]", " ", t)  # 아이템 이름은 빼고 평가
+    t = re.sub(r"[•·]", " ", t)  # 줄 앞 점(•)은 평가에서 뺌
+    t = re.sub(r",(?=[A-Za-z])", ", ", t)  # "Yes,full" -> "Yes, full"
     toks = t.split()
     if not toks:
         return 0.0
@@ -1071,6 +1076,9 @@ _TRADE_MAP = {"5": "S", "$": "S", "8": "B"}
 def normalize_trade(msg):
     # ": S>" 의 콜론을 K/I 로 읽어서 "KS>" "IS>" 가 되는 경우
     msg = re.sub(r"(?:(?<=\s)|^)[KkIl|:;.][SB]\s*>", lambda m: m.group(0)[1:], msg)
+    # 금액 앞 숫자 1 을 l / I 로 읽은 경우: "l .8m" -> "1.8m", "I mil" -> "1 mil"
+    msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s?\.(\d+)\s?((?i:k|m|mil))(?![A-Za-z])", r"1.\1\2", msg)
+    msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s(mil|mill|million)(?![A-Za-z])", r"1 \1", msg)
 
     def fix(m):
         before = msg[:m.start()]
@@ -1409,7 +1417,7 @@ _SELL_RE = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\bsell(?:ing)?\b|\bvendo\b|\b
                       r"|\[팝니다\]", re.I)
 _BUY_RE = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\bbuy(?:ing)?\b|\bcompro\b|\bbibili\b|\[삽니다\]", re.I)
 _MONEY_RE = re.compile(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))", re.I)
-_MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:(\d+)만)?|(\d+(?:\.\d+)?)\s*만(?:(\d+)천)?|(?<![\d만])(\d+)천(?:(\d)백)?")
+_MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:(\d+)만)?|(\d+(?:\.\d+)?)\s*만(?:(\d+)천)?(?:(\d)백)?|(?<![\d만])(\d+)천(?:(\d)백)?")
 
 
 # 찜 키워드(한국어) -> 같이 찾을 영어/줄임말
@@ -1455,9 +1463,9 @@ def prices_in(text):
         if m.group(1):
             out.append(int(float(m.group(1)) * 100_000_000 + int(m.group(2) or 0) * 10_000))
         elif m.group(3):
-            out.append(int(float(m.group(3)) * 10_000 + int(m.group(4) or 0) * 1_000))
+            out.append(int(float(m.group(3)) * 10_000 + int(m.group(4) or 0) * 1_000 + int(m.group(5) or 0) * 100))
         else:
-            out.append(int(m.group(5)) * 1_000 + int(m.group(6) or 0) * 100)
+            out.append(int(m.group(6)) * 1_000 + int(m.group(7) or 0) * 100)
     return [p for p in out if p >= 1000]
 
 

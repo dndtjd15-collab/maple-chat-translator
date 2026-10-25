@@ -1,1 +1,1 @@
-{"version": 54, "note": "경험치 측정 줄 간단하게: 사냥터·파티 칸 제거, 한 줄로", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 55, "note": "가격 오독 수정(l .8m→180만, 17.5k→1만7천5백), 슬롯 확장권·회피·싼 캐시템 등 용어 추가, 짧은 채팅(tyty, rn) 안 버리게", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
