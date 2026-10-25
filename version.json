@@ -1,1 +1,1 @@
-{"version": 42, "note": "메이플 용어 재점검: 석궁(사수로 잘못 나오던 것), 귀지력·전운·완마·장마·스마 줄임말, 하급/중급/고급, 제련·재봉 등 제작 이름", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 43, "note": "OCR이 Earring을 Earrin/Ear ring/Earing 등으로 깨뜨려 읽어도 귀고리로 번역", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
