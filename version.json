@@ -1,1 +1,1 @@
-{"version": 37, "note": "노란 글씨 게임 공지를 색으로 판별해서 숨김(한글이 깨져 읽혀도 숨겨짐), 가챠 알림 숨김 보강", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 38, "note": "일반 채팅 닉네임 인식 개선(콜론을 . • « 로 잘못 읽어도 닉네임 분리 → 클릭 복사 가능), 노란 공지 색으로 숨김", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

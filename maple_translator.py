@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 37  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 38  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -425,15 +425,20 @@ _CH_FIX = str.maketrans({"O": "0", "o": "0", "Z": "2", "z": "2", "S": "5", "s": 
                          "I": "1", "l": "1", "B": "8"})
 
 
+# 문장 첫 단어라서 닉네임으로 착각하면 안 되는 말
+_NOT_NAMES = set("well sure yeah okay also then what maybe lmao haha thanks sorry nope true same wait damn guys "
+                 "yes nice cool lets dude bruh look also just here there this that they wtb wts sell selling buying".split())
+
+
 def parse_line(raw):
     """채팅 한 줄을 (닉네임, 대화내용, 채널)로 분리.
     형식 1) 닉네임 CH12 ♥ : 대화   (확성기 - CH 배지 왼쪽이 닉네임, 배지가 채널)
     형식 2) 닉네임 : 대화           (일반/파티)
     배지는 있는데 대화가 없으면 ('닉네임', '', 채널) -> 다음 줄에 대화가 이어짐."""
     line = raw.strip()
-    w = re.match(r"^\s*([A-Za-z0-9가-힣_]{3,13})\s*(>>|<<|»|«)\s*(.+)$", line)
+    w = re.match(r"^\s*([A-Za-z0-9가-힣_]{3,13})\s*(>>|<<)\s*(.+)$", line)
     if w:  # 귓속말: 'Name>> 내용' (받은 귓) / 'Name<< 내용' (보낸 귓)
-        return w.group(1), w.group(3).strip(), ("받은 귓" if w.group(2) in (">>", "»") else "보낸 귓")
+        return w.group(1), w.group(3).strip(), ("받은 귓" if w.group(2) == ">>" else "보낸 귓")
     if "\x01" in line:  # 배지 위치로 이미 나눠진 줄
         name, ch, msg = (line.split("\x01") + ["", ""])[:3]
         return (_clean_name(name) or None), msg.strip(), (ch or None)
@@ -450,6 +455,10 @@ def parse_line(raw):
             return None, rest, ch
     m = LINE_RE.match(line)
     if not m:
+        # 일반 채팅 'cream : 내용'의 콜론을 OCR이 . • « ' 등으로 읽은 경우
+        m3 = re.match(r"^\s*[•·*]?\s*([A-Za-z0-9_]{4,13})\s*[.•·«»'`]{1,2}\s+(\S.*)$", line)
+        if m3 and _clean_name(m3.group(1)) and m3.group(1).lower() not in _NOT_NAMES:
+            return _clean_name(m3.group(1)), m3.group(2).strip(), None
         m2 = re.match(r"^\s*([^:：;\s][^:：;]{0,30}?)\s*[:：;]\s*$", line)
         if m2 and _clean_name(m2.group(1)) and len(m2.group(1).split()) <= 2:
             return _clean_name(m2.group(1)), "", None  # 닉네임만 있고 대화는 다음 줄
