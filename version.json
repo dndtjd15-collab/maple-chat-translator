@@ -1,1 +1,1 @@
-{"version": 25, "note": "확성기/고확 판별을 색 비율로 바꿔서 일반 채팅이 확성기로 잘못 분류되던 문제 수정 (일반 탭 누락 개선)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 26, "note": "일반 탭 정리: 한글 공지는 한글 그대로(공지로 분류), 아이템 설명창 겹침(MaxHP +10 등) 제거, 가챠 알림 분리", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

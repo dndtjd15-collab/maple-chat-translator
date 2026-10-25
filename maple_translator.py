@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 25  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 26  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -856,6 +856,13 @@ class ScreenOCR:
                         continue
                     kcy = krect[1] + krect[3] / 2
                     if abs(kcy - cy) <= max(rect[3], krect[3]) * 0.6:
+                        # 한글로 된 줄(공지·한국인 채팅)은 영어 OCR이 찌꺼기로 읽으니 한글 OCR 결과를 그대로 사용
+                        plain_k = re.sub(r"\[[^\]]*\]", "", ktext)
+                        han = len(HANGUL_RE.findall(plain_k))
+                        chars = len(re.sub(r"\s", "", plain_k)) or 1
+                        if han >= 4 and han / chars > 0.45 and "\x01" not in text:
+                            text, items = ktext.strip(), []
+                            break
                         found = re.findall(r"\[[^\[\]]*[가-힣][^\[\]]*\]", ktext)
                         if not found and re.search(r"[\[\]]", text):
                             # 대괄호를 못 읽은 경우: 영어 줄에 아이템 링크 흔적([ ])이 있을 때만
@@ -990,6 +997,13 @@ TEXT_KINDS = [
 ]
 KIND_COLORS = {k: c for k, _, c in BG_KINDS + TEXT_KINDS}
 KIND_COLORS["일반"] = "#d0d6e2"
+KIND_COLORS["공지"] = "#8f98ab"
+
+# 아이템 설명창(마우스 올렸을 때 뜨는 창)이 채팅창 위에 겹쳐서 읽힌 줄
+_TOOLTIP_RE = re.compile(r"^\s*(max\s?hp|max\s?mp|hp|mp|str|dex|int|luk|weapon\s?(att|attack|def)|magic\s?(att|attack|def)|"
+                         r"w\.?\s?def|m\.?\s?def|accuracy|avoid\w*|speed|jump|req\s?\w+|upgrade\w*|분류|업그레이드)"
+                         r"\.?\s*[:：.]?\s*[+-]?\d+(\s*\(\d+\s*[+-]\s*\d+\))?\s*$", re.I)  # '이름 : +숫자' 만 있는 줄
+_NOTICE_RE = re.compile(r"\[공지\]|주의하시기|알려드립니다|운영자|obtained \[.*\] from|congratulations!?$|congrats!?$", re.I)
 
 
 # ---- 거래 글 판별 / 찾는 물건(찜) ------------------------------------------
@@ -1851,6 +1865,8 @@ def run_app():
                                 out_q.put(("__fix__", eid0) + got)
                         continue
                     cur_key = normalize(raw)
+                    if _TOOLTIP_RE.match(raw):
+                        continue  # 아이템 설명창이 겹쳐 보인 것 (MaxHP : +10 등)
                     name, msg, ch = parse_line(raw)
                     if ch and not name and not pending[0]:
                         report_issue("닉네임 못 읽음 (배지는 찾음)", raw, img=ocr.last_img, rect=rect)
@@ -1886,6 +1902,8 @@ def run_app():
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if ch in ("받은 귓", "보낸 귓"):
                         kind = "귓속말"
+                    elif not name and _NOTICE_RE.search(msg):
+                        kind = "공지"  # 게임 공지·가챠 알림 -> [일반] 탭에서 빼고 [전체]에만
                     if ch == "보낸 귓" or (name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower()):
                         ordered.append((cur_key, "now", (name, msg, msg, None, kind, ch)))
                         continue
