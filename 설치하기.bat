@@ -39,7 +39,20 @@ if errorlevel 1 (
 )
 echo.
 echo [3/3] 영어 OCR 언어팩 확인 중...
-powershell -NoProfile -Command "if ((Get-WindowsCapability -Online -Name 'Language.OCR~~~en-US~0.0.1.0').State -ne 'Installed') { Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -Command Add-WindowsCapability -Online -Name Language.OCR~~~en-US~0.0.1.0' } else { Write-Host '이미 설치되어 있어요.' }"
+%PY% -c "from winrt.windows.media.ocr import OcrEngine; from winrt.windows.globalization import Language; import sys; sys.exit(0 if OcrEngine.is_language_supported(Language('en-US')) else 1)" >nul 2>nul
+if errorlevel 1 (
+  echo 영어 OCR 언어팩을 설치합니다. "디바이스를 변경하도록 허용" 창이 뜨면 [예]를 눌러주세요. 몇 분 걸릴 수 있어요...
+  powershell -NoProfile -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -Command Add-WindowsCapability -Online -Name Language.OCR~~~en-US~0.0.1.0'"
+  %PY% -c "from winrt.windows.media.ocr import OcrEngine; from winrt.windows.globalization import Language; import sys; sys.exit(0 if OcrEngine.is_language_supported(Language('en-US')) else 1)" >nul 2>nul
+  if errorlevel 1 (
+    echo 영어 OCR 언어팩 설치가 안 됐어요. [설정 - 시간 및 언어 - 언어 및 지역 - 언어 추가]에서 English ^(United States^) 를 추가해 주세요.
+    echo ^(언어팩이 없어도 번역기는 한국어 OCR로 대신 동작해요^)
+  ) else (
+    echo 영어 OCR 언어팩 설치 완료
+  )
+) else (
+  echo 이미 설치되어 있어요.
+)
 echo.
 echo ==========================================
 echo   설치 완료! 이제 실행하기.bat 를 실행하세요.

@@ -1,1 +1,1 @@
-{"version": 50, "note": "영어 OCR 언어팩이 없는 PC에서 오류 대신 한국어 OCR로 대신 읽고 안내 표시", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 51, "note": "설치하기.bat: 영어 OCR 언어팩 확인을 관리자 권한 없이 하고, 없을 때만 관리자 창 띄워 설치", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
