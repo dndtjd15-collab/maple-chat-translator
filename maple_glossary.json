@@ -302,7 +302,14 @@
     "pmo's": "(가격 제시 귓 주세요)",
     "pm o": "(가격 제시 귓 주세요)",
     "pm offer": "(가격 제시 귓 주세요)",
-    "o.b.o": "(가격 제시 받아요)"
+    "o.b.o": "(가격 제시 받아요)",
+    "claws": "아대",
+    "claw att": "아대 공격력",
+    "claw attack": "아대 공격력",
+    "claw for att": "아대 공격력",
+    "claw for attack": "아대 공격력",
+    "scroll for claw for att": "아대 공격력 주문서",
+    "claw atk": "아대 공격력"
   },
   "terms_case": {
     "MA": "마력",
@@ -346,5 +353,9 @@
     "warrior": "전사",
     "bowman": "궁수",
     "thief": "도적"
+  },
+  "ko_terms": {
+    "_설명": "[아이템] 이름 안의 한글을 바꿀 때. 예) 클로 -> 아대",
+    "클로": "아대"
   }
 }

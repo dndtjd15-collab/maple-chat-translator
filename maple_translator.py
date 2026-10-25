@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 16  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 17  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -75,6 +75,15 @@ def save_config(cfg):
         print("config.json 저장 실패:", e)
 
 
+KO_TERMS = {}  # 한글 용어 교체 (사전의 ko_terms). 예) 클로 -> 아대
+
+
+def apply_ko_terms(text):
+    for k, v in KO_TERMS.items():  # 낱말 단위로만 (클로버 -> 아대버 방지)
+        text = re.sub(r"(?<![가-힣])" + re.escape(k) + r"(?![가-힣])", v, text)
+    return text
+
+
 class Glossary:
     """메이플 용어 사전 처리기."""
 
@@ -88,7 +97,7 @@ class Glossary:
         if os.path.exists(MY_GLOSSARY_PATH):
             with open(MY_GLOSSARY_PATH, "r", encoding="utf-8") as f:
                 mine = json.load(f)
-            for sec in ("expand", "terms", "terms_case", "names"):
+            for sec in ("expand", "terms", "terms_case", "names", "ko_terms"):
                 data.setdefault(sec, {}).update(mine.get(sec) or {})
         clean = lambda d: {k: v for k, v in (d or {}).items() if not k.startswith("_")}
         self.expand = clean(data.get("expand"))
@@ -96,6 +105,9 @@ class Glossary:
         terms.update(clean(data.get("names")))
         self.terms = terms
         self.terms_case = clean(data.get("terms_case"))
+        self.ko_terms = clean(data.get("ko_terms"))
+        KO_TERMS.clear()
+        KO_TERMS.update(self.ko_terms)
         self._expand_re = self._build(self.expand, ignore_case=True)
         self._terms_re = self._build(self.terms, ignore_case=True)
         self._terms_case_re = self._build(self.terms_case, ignore_case=False)
@@ -132,7 +144,7 @@ class Glossary:
         def bracket(m):
             inner = m.group(1)
             if not re.search(r"[A-Za-z]", inner):
-                return hold(m.group(0))  # 한글/숫자만 -> 통째로 보존
+                return hold(apply_ko_terms(m.group(0)))  # 한글/숫자만 -> 보존 (클로->아대 같은 교체만)
             out = []
             for part in re.split(r"([A-Za-z][A-Za-z'./ -]*[A-Za-z]|[A-Za-z])", inner):
                 if not part:
@@ -150,7 +162,9 @@ class Glossary:
                                 re.sub(r"\s+", " ", t.group(0)).lower(), t.group(0))), sub)
                         out.append(sub)  # 남은 영어는 번역기가 번역
                 elif part.strip():
-                    out.append(hold(part.strip()))  # 한글·숫자·기호는 그대로
+                    ko = part.strip()
+                    ko = apply_ko_terms(ko)  # 클로 -> 아대 같은 한글 용어 교체
+                    out.append(hold(ko))  # 한글·숫자·기호는 그대로
             return " [ " + " ".join(out) + " ] "
 
         text = re.sub(r"\[([^\]]{1,40})\]", bracket, text)
@@ -823,6 +837,7 @@ WATCH_ALIASES = {
     "완드마력": ["wandma", "wandmatk", "완마"], "완마": ["wandma", "완드마력"],
     "스태프마력": ["staffma", "staffmatk", "스마"], "스마": ["staffma", "스태프마력"],
     "전신지력": ["overallint", "전지"], "전신민첩": ["overalldex", "전민"],
+    "아대공격력": ["clawatt", "clawattack", "아대공"], "아대공": ["clawatt", "아대공격력"],
     "망토지력": ["capeint"], "망토민첩": ["capedex"],
     "투구명중": ["helmacc", "hatacc"], "신발이동속도": ["shoespeed", "shoesspeed"],
     "페어리완드": ["fairywand"], "이블윙즈": ["evilwings"], "크로미": ["cromi"],
@@ -1019,6 +1034,7 @@ TRADE_FIX = [
 
 def polish_ai(text):
     """AI가 놓친 거래 표기를 마저 한국어로 바꾸고 중복 표현 정리."""
+    text = apply_ko_terms(text)
     for pat, rep in TRADE_FIX:
         text = pat.sub(rep, text)
     text = re.sub(r"(\[(팝니다|삽니다)\])([^\[]*?)\s*\2(?=\s|$|/|,)", r"\1\3", text)
