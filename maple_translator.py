@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 36  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 37  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1086,6 +1086,7 @@ BG_KINDS = [
 ]
 # 배경이 없는 줄 = 글자색으로 구분
 TEXT_KINDS = [
+    ("공지",   (255, 255, 0),   "#8f98ab"),   # 노란 글씨 = 게임 공지 (운영자 사칭 주의 등)
     ("파티",   (255, 153, 204), "#ff99cc"),
     ("귓속말", (0, 255, 0),     "#7CFC00"),
     ("길드",   (187, 136, 255), "#c39bff"),
@@ -1093,13 +1094,12 @@ TEXT_KINDS = [
 ]
 KIND_COLORS = {k: c for k, _, c in BG_KINDS + TEXT_KINDS}
 KIND_COLORS["일반"] = "#d0d6e2"
-KIND_COLORS["공지"] = "#8f98ab"
 
 # 아이템 설명창(마우스 올렸을 때 뜨는 창)이 채팅창 위에 겹쳐서 읽힌 줄
 _TOOLTIP_RE = re.compile(r"^\s*(max\s?hp|max\s?mp|hp|mp|str|dex|int|luk|weapon\s?(att|attack|def)|magic\s?(att|attack|def)|"
                          r"w\.?\s?def|m\.?\s?def|accuracy|avoid\w*|speed|jump|req\s?\w+|upgrade\w*|분류|업그레이드)"
                          r"\.?\s*[:：.]?\s*[+-]?\d+(\s*\(\d+\s*[+-]\s*\d+\))?\s*$", re.I)  # '이름 : +숫자' 만 있는 줄
-_NOTICE_RE = re.compile(r"[\[(]\{?공지|공지[\]」)]|초대\s*허|게임\s*옵|개인정보|사기\s*행위|주의하시기|알려드립니다|운영자|obtained \[.*\] from|congratulations!?$|congrats!?$"
+_NOTICE_RE = re.compile(r"[\[(]\{?공지|공지[\]」)]|초대\s*허|게임\s*옵|개인정보|사기\s*행위|주의하시기|알려드립니다|운영자|obtained\s.{2,50}\sfrom\s(the\s)?|congratulations!?$|congrats!?$"
                         # 파티 시스템 메시지 (들어옴/나감/추방/해체/파티장 변경/초대)
                         r"|파티를\s*(탈퇴|떠|해체|결성|만들)|파티에\s*(가입|참여|들어|초대)|파티장|파티에서\s*(추방|강퇴|탈퇴)|초대(를|했|하였)"
                         r"|(has\s+)?(left|joined)\s+(the\s+)?party|been\s+(expelled|kicked)|party\s+(has\s+been\s+)?disbanded"
@@ -1264,6 +1264,7 @@ def classify_line(img, rect):
     counts["귓속말"] += sum(1 for p in bright if p[1] > 170 and p[1] - p[0] > 70 and p[1] - p[2] > 70)
     counts["길드"] += sum(1 for p in bright if p[2] > 190 and p[2] - p[1] > 60 and p[0] - p[1] > 20 and p[0] < 220)
     counts["친구"] += sum(1 for p in bright if p[0] > 220 and 120 < p[1] < 200 and p[2] < 60)
+    counts["공지"] += sum(1 for p in bright if p[0] > 220 and p[1] > 220 and p[2] < 70)
     kind, cnt = max(counts.items(), key=lambda kv: kv[1])
     white = sum(1 for p in bright if min(p) > 200)
     if DEBUG[0]:
@@ -2017,6 +2018,8 @@ def run_app():
                         continue  # 내 캐릭터 이름표를 채팅으로 잘못 읽은 줄 (채팅창 영역이 게임 화면에 겹침)
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
+                    if kind == "공지" and cfg.get("hide_notice", True):
+                        continue  # 노란 글씨 게임 공지 (글자가 깨져도 색으로 판별해서 숨김)
                     if ch in ("받은 귓", "보낸 귓"):
                         kind = "귓속말"
                     elif kind == "파티" and not name:
