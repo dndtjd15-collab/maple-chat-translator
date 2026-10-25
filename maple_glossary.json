@@ -722,7 +722,14 @@
     "earrimg": "귀고리",
     "eamng": "귀고리",
     "emeral earrin": "에메랄드 귀고리",
-    "emerl earrin": "에메랄드 귀고리"
+    "emerl earrin": "에메랄드 귀고리",
+    "m.def": "마방",
+    "m. def": "마방",
+    "mdef": "마방",
+    "w.def": "물방",
+    "w. def": "물방",
+    "wdef": "물방",
+    "m. att": "마력"
   },
   "terms_case": {
     "MA": "마력",

@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 43  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 44  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -192,7 +192,7 @@ class Glossary:
             value = num * (1_000 if unit.startswith("k") else 1_000_000)
             return hold(format_meso(value))
 
-        text = re.sub(r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z])",
+        text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",
                       money, text, flags=re.IGNORECASE)
 
         # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
@@ -1139,7 +1139,7 @@ _SELL_RE = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\bsell(?:ing)?\b|\bvendo\b|\b
                       r"|(?<![A-Za-z])a\s?/\s?w\b|(?<![A-Za-z])c\s?/\s?[o0]\b|\bobo\b|\bpm[o0]\b|\bpm offers?\b"
                       r"|\[팝니다\]", re.I)
 _BUY_RE = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\bbuy(?:ing)?\b|\bcompro\b|\bbibili\b|\[삽니다\]", re.I)
-_MONEY_RE = re.compile(r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z])", re.I)
+_MONEY_RE = re.compile(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))", re.I)
 _MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:(\d+)만)?|(\d+(?:\.\d+)?)\s*만(?:(\d+)천)?|(?<![\d만])(\d+)천(?:(\d)백)?")
 
 

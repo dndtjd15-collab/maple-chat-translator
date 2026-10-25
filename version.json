@@ -1,1 +1,1 @@
-{"version": 43, "note": "OCR이 Earring을 Earrin/Ear ring/Earing 등으로 깨뜨려 읽어도 귀고리로 번역", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 44, "note": "가격 버그 수정(+1 M.Def 를 100만으로 읽던 문제), 마방·물방 용어, Earring OCR 변형 귀고리 처리", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
