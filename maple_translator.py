@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 32  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 33  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -466,6 +466,21 @@ def normalize(s):
     return re.sub(r"[^a-z0-9가-힣]", "", s.lower())
 
 
+_WORD_OK = re.compile(r"^[\[(\"'*]*((?=[A-Za-z']*[aeiouyAEIOUY])(?:[A-Z]?[a-z']+|[A-Z']+)|\d+([.,]\d+)?(?i:k|m|kk|%|x)?|[SBTLJ]>|(?i:ch|lv)\.?\d+|\d+(?i:[a-z]{1,4})|[A-Z]{2,5}|(?i:ok|k|u|ty|gz|lol|pm|pmo|pm0|nx|fm|cc|ea|obo|a/w|c/o|sry|brb|omw)|[:/&+\-<>]|>>|<<)[\])\"'.,!?:;~]*$")
+
+
+def text_quality(text):
+    """OCR 결과가 얼마나 '사람이 쓴 글' 같은지 0~1 점수 (찌꺼기 걸러내기·두 OCR 결과 중 고르기용)."""
+    t = re.sub(r"\x01[^\x01]*\x01", " ", text or "")
+    t = re.sub(r"\[[^\]]*\]", " ", t)  # 아이템 이름은 빼고 평가
+    toks = t.split()
+    if not toks:
+        return 0.0
+    good = sum(1 for w in toks if _WORD_OK.match(w))
+    junk = len(re.findall(r"[^A-Za-z0-9가-힣\s.,!?:;'\"/%+\-<>()\[\]&#@*~=_]", t))
+    return max(0.0, good / len(toks) - 0.15 * junk / max(1, len(t)) * 10)
+
+
 def _same_line(a, b):
     """같은 채팅 줄인지 (OCR이 앞부분 닉네임을 읽었다/못 읽었다 해도 같은 줄로 봄)."""
     if a == b:
@@ -843,6 +858,33 @@ class ScreenOCR:
             dlog("BADGE-ERR", repr(e))
             return ["" for _ in items]
 
+    @staticmethod
+    def _white_mask(img):
+        """흰색(밝고 무채색) 글자만 검은색으로, 나머지는 흰 배경으로."""
+        from PIL import ImageChops
+        r, g, b = img.convert("RGB").split()
+        mn = ImageChops.darker(ImageChops.darker(r, g), b)
+        return mn.point(lambda v: 0 if v > 150 else 255).convert("RGB")
+
+    @staticmethod
+    def _pick_better(en, en2):
+        out = []
+        used = set()
+        for text, rect, ws in en:
+            best = (text, rect, ws)
+            if rect:
+                cy = rect[1] + rect[3] / 2
+                for j, (t2, r2, w2) in enumerate(en2):
+                    if j in used or not r2:
+                        continue
+                    if abs((r2[1] + r2[3] / 2) - cy) <= max(rect[3], r2[3]) * 0.6:
+                        if text_quality(t2) > text_quality(text) + 0.1 and len(t2) >= len(text) * 0.6:
+                            best = (t2, rect, w2)
+                        used.add(j)
+                        break
+            out.append(best)
+        return out
+
     def _ko_supported(self):
         if self._ko is None:
             try:
@@ -866,6 +908,14 @@ class ScreenOCR:
                 ko = self._ocr(img, "ko")
             except Exception:  # noqa: BLE001
                 ko = []
+        # 일반 채팅(흰 글씨)은 '흰 글씨만 검은색으로 뽑은 그림'으로 한 번 더 읽어서 더 깨끗한 쪽을 씀
+        if self.lang != "ko":
+            try:
+                wm = self._white_mask(img)
+                en2 = self._ocr(wm, self.lang)
+                en = self._pick_better(en, en2)
+            except Exception as e:  # noqa: BLE001
+                dlog("WHITE-ERR", repr(e))
         dlog("OCR-EN", [t[0] for t in en])
         dlog("OCR-KO", [t[0] for t in ko])
         en = self._apply_badges(img, en)
@@ -1026,7 +1076,7 @@ KIND_COLORS["공지"] = "#8f98ab"
 _TOOLTIP_RE = re.compile(r"^\s*(max\s?hp|max\s?mp|hp|mp|str|dex|int|luk|weapon\s?(att|attack|def)|magic\s?(att|attack|def)|"
                          r"w\.?\s?def|m\.?\s?def|accuracy|avoid\w*|speed|jump|req\s?\w+|upgrade\w*|분류|업그레이드)"
                          r"\.?\s*[:：.]?\s*[+-]?\d+(\s*\(\d+\s*[+-]\s*\d+\))?\s*$", re.I)  # '이름 : +숫자' 만 있는 줄
-_NOTICE_RE = re.compile(r"\[공지\]|주의하시기|알려드립니다|운영자|obtained \[.*\] from|congratulations!?$|congrats!?$"
+_NOTICE_RE = re.compile(r"[\[(]\{?공지|공지[\]」)]|초대\s*허|게임\s*옵|개인정보|사기\s*행위|주의하시기|알려드립니다|운영자|obtained \[.*\] from|congratulations!?$|congrats!?$"
                         # 파티 시스템 메시지 (들어옴/나감/추방/해체/파티장 변경/초대)
                         r"|파티를\s*(탈퇴|떠|해체|결성|만들)|파티에\s*(가입|참여|들어|초대)|파티장|파티에서\s*(추방|강퇴|탈퇴)|초대(를|했|하였)"
                         r"|(has\s+)?(left|joined)\s+(the\s+)?party|been\s+(expelled|kicked)|party\s+(has\s+been\s+)?disbanded"
@@ -1773,6 +1823,8 @@ def run_app():
         allowed = VIEW_TABS.get(view)
 
         def ok(e):
+            if e[3] == "hidden":
+                return False
             if e[4] and e[4] in hidden:
                 return False
             if allowed is None:
@@ -1929,6 +1981,9 @@ def run_app():
                     cur_key, name, msg, ch, kind = c["keys"], c["name"], c["msg"], c["ch"], c["kind"]
                     dlog("LINE", kind, repr(name), ch, msg)
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
+                    if not name and not HANGUL_RE.search(msg) and not trade_of(msg) and text_quality(msg) < 0.55:
+                        dlog("DROP-JUNK", msg)
+                        continue  # 닉네임도 없고 글자가 엉망인 줄 = OCR 찌꺼기
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if ch in ("받은 귓", "보낸 귓"):
@@ -2069,6 +2124,9 @@ def run_app():
             if item[0] == "__update__":
                 for e in reversed(entries):
                     if e[5] == item[1]:
+                        if re.search(r"번역\s*불가|해석\s*불가|알\s*수\s*없", item[2]) and len(item[2]) < 30:
+                            e[3] = "hidden"  # AI도 못 읽은 찌꺼기 줄은 숨김
+                            break
                         e[1], e[6] = item[2], True
                         if cfg.get("ai_memory", True) and e[2]:
                             memory.add(e[2], item[2])
