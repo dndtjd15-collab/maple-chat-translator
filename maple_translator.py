@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 28  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 29  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1011,7 +1011,11 @@ KIND_COLORS["공지"] = "#8f98ab"
 _TOOLTIP_RE = re.compile(r"^\s*(max\s?hp|max\s?mp|hp|mp|str|dex|int|luk|weapon\s?(att|attack|def)|magic\s?(att|attack|def)|"
                          r"w\.?\s?def|m\.?\s?def|accuracy|avoid\w*|speed|jump|req\s?\w+|upgrade\w*|분류|업그레이드)"
                          r"\.?\s*[:：.]?\s*[+-]?\d+(\s*\(\d+\s*[+-]\s*\d+\))?\s*$", re.I)  # '이름 : +숫자' 만 있는 줄
-_NOTICE_RE = re.compile(r"\[공지\]|주의하시기|알려드립니다|운영자|obtained \[.*\] from|congratulations!?$|congrats!?$", re.I)
+_NOTICE_RE = re.compile(r"\[공지\]|주의하시기|알려드립니다|운영자|obtained \[.*\] from|congratulations!?$|congrats!?$"
+                        # 파티 시스템 메시지 (들어옴/나감/추방/해체/파티장 변경/초대)
+                        r"|파티를\s*(탈퇴|떠|해체|결성|만들)|파티에\s*(가입|참여|들어|초대)|파티장|파티에서\s*(추방|강퇴|탈퇴)|초대(를|했|하였)"
+                        r"|(has\s+)?(left|joined)\s+(the\s+)?party|been\s+(expelled|kicked)|party\s+(has\s+been\s+)?disbanded"
+                        r"|(is\s+now|became)\s+the\s+party\s+leader|invited\s+you|party\s+invitation|already\s+in\s+a\s+party", re.I)
 
 
 # ---- 거래 글 판별 / 찾는 물건(찜) ------------------------------------------
@@ -1912,6 +1916,8 @@ def run_app():
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if ch in ("받은 귓", "보낸 귓"):
                         kind = "귓속말"
+                    elif kind == "파티" and not name:
+                        continue  # 닉네임 없는 분홍 줄 = 파티 시스템 메시지 (누가 들어옴/나감 등) -> 숨김
                     elif not name and _NOTICE_RE.search(msg):
                         kind = "공지"  # 게임 공지·가챠 알림
                         if cfg.get("hide_notice", True):

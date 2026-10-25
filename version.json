@@ -1,1 +1,1 @@
-{"version": 28, "note": "번역 실패한 줄 자동 재번역(일반 채팅 영어로 남던 문제), 확성기 판별 개선(분홍 확성기가 파티로 뜨던 문제), 스타라이트 하트 셉터 등 용어", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 29, "note": "파티 시스템 메시지(탈퇴/가입/추방/파티장 변경) 숨기고 파티원 채팅만 표시", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
