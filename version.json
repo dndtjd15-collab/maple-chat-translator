@@ -1,1 +1,1 @@
-{"version": 20, "note": "AI 번역을 ai_memory.json 에 저장하고 같은 채팅은 재사용(✧, Claude 사용량 0)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 21, "note": "채팅창에 있는데 번역에 안 뜨던 줄 수정: 나중에 더 잘 읽히면 닉네임·팝니다 표시 보완, 줄바꿈된 뒷부분 합치기, 가격 다른 글 구분", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 20  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 21  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -377,6 +377,9 @@ BADGE_RE = re.compile(r"\s*(?<![A-Za-z])[CcGg][Hh]\s*([0-9OoZzSsIlB]{1,2})(?![A-
 def _clean_name(part):
     """닉네임은 번역하지 않고 인식된 그대로 사용 (앞뒤 기호만 정리)."""
     raw = CHANNEL_RE.sub("", part).strip(" \t:;：@®©*·•|'\"`\\/.,()[]{}<>~")
+    raw = re.sub(r"\s+[0-9OoIl|\]\[)(]{1,2}$", "", raw)  # 'Gutta 0]' 처럼 배지 찌꺼기가 붙은 경우
+    if len(re.sub(r"[^A-Za-z0-9가-힣]", "", raw)) < 3:
+        return None  # 'm', 'ae' 처럼 닉네임 일부만 읽힌 것
     return raw or None
 
 
@@ -418,7 +421,25 @@ def parse_line(raw):
 
 
 def normalize(s):
+    s = re.sub(r"\x01[^\x01]*\x01", " ", s)  # 채널 배지 표시는 비교에서 뺌
     return re.sub(r"[^a-z0-9가-힣]", "", s.lower())
+
+
+def _same_line(a, b):
+    """같은 채팅 줄인지 (OCR이 앞부분 닉네임을 읽었다/못 읽었다 해도 같은 줄로 봄)."""
+    if a == b:
+        return True
+    if re.findall(r"\d+", a) != re.findall(r"\d+", b):
+        # 숫자(가격·%)가 다르면 다른 글 (175k vs 150k, 60% vs 30%) - 아주 비슷할 때만 같은 줄
+        return SequenceMatcher(None, a, b).ratio() > 0.96 and abs(len(a) - len(b)) <= 1
+    sm = SequenceMatcher(None, a, b)
+    if sm.ratio() > 0.88:
+        return True
+    short = min(len(a), len(b))
+    if short >= 12:
+        matched = sum(m.size for m in sm.get_matching_blocks())
+        return matched >= short * 0.92
+    return False
 
 
 class AIMemory:
@@ -505,15 +526,26 @@ class SeenLines:
         if len(key) < 3:
             return True
         for old in reversed(self.items[-80:]):
-            if old == key or SequenceMatcher(None, old, key).ratio() > 0.88:
+            if _same_line(old, key):
                 return True
         return False
+
+    def match_key(self, line):
+        """이미 본 줄이면 그때 기록한 키를 돌려줌."""
+        key = normalize(line)
+        if len(key) < 3:
+            return None
+        for old in reversed(self.items[-80:]):
+            if _same_line(old, key):
+                return old
+        return None
 
     def new_lines(self, lines):
         """채팅은 항상 아래에 새로 붙으니까, 화면에서 '이미 본 마지막 줄' 아래만 새 줄로 인정.
         (위쪽 줄을 OCR이 조금 다르게 읽어서 옛날 채팅이 뒤늦게 다시 뜨는 순서 꼬임 방지)"""
         flags = [self.seen(raw) for raw in lines]
-        last = max((i for i, f in enumerate(flags) if f), default=-1)
+        # 너무 짧은 줄(찌꺼기)은 '이미 본 줄' 기준점으로 쓰지 않음
+        last = max((i for i, f in enumerate(flags) if f and len(normalize(lines[i])) >= 6), default=-1)
         out = []
         for i, raw in enumerate(lines):
             if not flags[i]:
@@ -527,7 +559,7 @@ class SeenLines:
         if len(key) < 3:
             return False
         for old in reversed(self.items[-80:]):
-            if old == key or SequenceMatcher(None, old, key).ratio() > 0.88:
+            if _same_line(old, key):
                 return False
         self.items.append(key)
         if len(self.items) > self.size:
@@ -708,6 +740,13 @@ class ScreenOCR:
                 sheet.paste(c, (10, yy))
                 ys.append((yy, yy + c.height))
                 yy += c.height + gap
+            if DEBUG[0] and time.time() - getattr(self, "_badge_dbg", 0) > 30:
+                self._badge_dbg = time.time()
+                try:
+                    sheet.save(os.path.join(APP_DIR, "debug_badge.png"))
+                    self._orig.save(os.path.join(APP_DIR, "debug_capture.png"))
+                except Exception:  # noqa: BLE001
+                    pass
             import asyncio
             import winocr
             res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(sheet, "en")))
@@ -905,8 +944,10 @@ KIND_COLORS["일반"] = "#d0d6e2"
 
 
 # ---- 거래 글 판별 / 찾는 물건(찜) ------------------------------------------
-_SELL_RE = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\bselling\b|\bvendo\b|\bvendiendo\b|\bbenta\b", re.I)
-_BUY_RE = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\bbuying\b|\bcompro\b|\bbibili\b", re.I)
+_SELL_RE = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\bsell(?:ing)?\b|\bvendo\b|\bvendiendo\b|\bbenta\b"
+                      r"|(?<![A-Za-z])a\s?/\s?w\b|(?<![A-Za-z])c\s?/\s?[o0]\b|\bobo\b|\bpm[o0]\b|\bpm offers?\b"
+                      r"|\[팝니다\]", re.I)
+_BUY_RE = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\bbuy(?:ing)?\b|\bcompro\b|\bbibili\b|\[삽니다\]", re.I)
 _MONEY_RE = re.compile(r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z])", re.I)
 _MONEY_KO_RE = re.compile(r"(\d+(?:\.\d+)?)\s*억(?:\s*(\d+)\s*만)?|(\d+(?:\.\d+)?)\s*만(?:\s*(\d+)\s*천)?")
 
@@ -928,9 +969,17 @@ WATCH_ALIASES = {
 }
 
 
-def trade_of(msg):
-    """'sell' (팝니다) / 'buy' (삽니다) / None. 한 줄에 둘 다 있으면 먼저 나온 쪽."""
-    s_m, b_m = _SELL_RE.search(msg), _BUY_RE.search(msg)
+_SELL_STRONG = re.compile(r"(?<![A-Za-z])S\s?>|\bwts\b|\[팝니다\]", re.I)
+_BUY_STRONG = re.compile(r"(?<![A-Za-z])B\s?>|\bwtb\b|\[삽니다\]", re.I)
+
+
+def trade_of(msg, strong=False):
+    """'sell' (팝니다) / 'buy' (삽니다) / None. 한 줄에 둘 다 있으면 먼저 나온 쪽.
+    strong=True 면 S> B> 같은 확실한 표시만 봄."""
+    if strong:
+        s_m, b_m = _SELL_STRONG.search(msg), _BUY_STRONG.search(msg)
+    else:
+        s_m, b_m = _SELL_RE.search(msg), _BUY_RE.search(msg)
     if s_m and b_m:
         return "sell" if s_m.start() < b_m.start() else "buy"
     return "sell" if s_m else "buy" if b_m else None
@@ -1713,6 +1762,8 @@ def run_app():
 
     # --- 작업 스레드 -------------------------------------------------------
     pending = [None]
+    owner = {}   # 화면 줄 키 -> 띄운 항목 id
+    fixed = {}   # 항목 id -> 마지막으로 보낸 보완 정보
 
     def worker():
         while state["running"]:
@@ -1722,9 +1773,21 @@ def run_app():
                 batch = []  # (name, msg, protected, slots)
                 ordered = []  # 화면 순서 그대로 내보내기: ("now", 항목) 또는 ("tr", batch 번호)
                 fresh = set(seen.new_lines([raw for raw, _r, _i in lines]))
+                cands = []
                 for idx, (raw, rect, items) in enumerate(lines):
                     if idx not in fresh:
+                        # 이미 띄운 줄을 이번엔 더 잘 읽었으면 (닉네임/채널/팝니다 표시) 그 줄을 보완
+                        okey = seen.match_key(raw)
+                        eid0 = owner.get(okey)
+                        if eid0:
+                            n2, m2, c2 = parse_line(raw)
+                            t2 = trade_of(normalize_trade(m2), strong=True)
+                            got = (n2 if n2 and len(n2) >= 3 else None, c2, t2)
+                            if any(got) and fixed.get(eid0) != got:
+                                fixed[eid0] = got
+                                out_q.put(("__fix__", eid0) + got)
                         continue
+                    cur_key = normalize(raw)
                     name, msg, ch = parse_line(raw)
                     if ch and not name and not pending[0]:
                         report_issue("닉네임 못 읽음 (배지는 찾음)", raw, img=ocr.last_img, rect=rect)
@@ -1736,32 +1799,54 @@ def run_app():
                         items = list(p_items) + [i for i in items if i not in p_items]
                     pending[0] = None
                     msg = normalize_trade(merge_item_links(msg, items))
+                    if re.match(r"^[^\[\]]{2,40}\]", msg):  # 앞쪽 '[' 를 놓친 아이템 링크 복구
+                        msg = "[" + msg
                     msg = re.sub(r"[@©®]{3,}", "", msg).strip()  # 아이콘을 @@@@ 로 읽은 찌꺼기
-                    kind = classify_line(ocr.last_img, rect)
+                    # 긴 채팅이 줄바꿈된 뒷부분 ('g 800k') -> 바로 윗줄에 이어 붙임
+                    width = ocr.last_img.width if getattr(ocr, "last_img", None) is not None else 0
+                    if (not name and cands and cands[-1]["idx"] == idx - 1 and len(cands[-1]["msg"]) >= 25
+                            and cands[-1]["right"] >= width * 0.85  # 윗줄이 오른쪽 끝까지 꽉 찼을 때만 = 줄바꿈
+                            and not re.match(r"^\s*[SBTL]\s?>", msg)):
+                        cands[-1]["msg"] += ("" if cands[-1]["msg"].endswith(" ") else " ") + msg
+                        cands[-1]["keys"].append(cur_key)
+                        cands[-1]["idx"] = idx
+                        cands[-1]["right"] = (rect[0] + rect[2]) if rect else 0
+                        continue
+                    cands.append({"idx": idx, "keys": [cur_key], "name": name, "msg": msg, "ch": ch,
+                                  "kind": classify_line(ocr.last_img, rect),
+                                  "right": (rect[0] + rect[2]) if rect else 0})
+                for c in cands:
+                    cur_key, name, msg, ch, kind = c["keys"], c["name"], c["msg"], c["ch"], c["kind"]
+                    dlog("LINE", repr(name), ch, msg)
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower():
-                        ordered.append(("now", (name, msg, msg, None, kind, ch)))
+                        ordered.append((cur_key, "now", (name, msg, msg, None, kind, ch)))
                         continue
                     plain = re.sub(r"\[[^\]]*\]", "", msg)
                     if cfg["skip_korean_lines"] and plain.strip() and len(HANGUL_RE.findall(plain)) > len(plain) * 0.3:
-                        ordered.append(("now", (name, msg, msg, None, kind, ch)))
+                        ordered.append((cur_key, "now", (name, msg, msg, None, kind, ch)))
                         continue
                     if cfg.get("ai_memory", True):
                         saved = memory.get(msg)
                         if saved:  # 예전에 AI가 번역한 똑같은 채팅 -> Claude·구글 없이 바로
-                            ordered.append(("mem", (name, saved, msg, None, kind, ch)))
+                            ordered.append((cur_key, "mem", (name, saved, msg, None, kind, ch)))
                             continue
                     protected, slots = glossary.protect(msg)
-                    ordered.append(("tr", len(batch)))
+                    ordered.append((cur_key, "tr", len(batch)))
                     batch.append((name, msg, protected, slots, kind, ch))
                 err = None
                 translated = []
                 if batch:
                     translated, err = translator.translate_many([b[2] for b in batch])
-                for how, val in ordered:
+                for okeys, how, val in ordered:
                     eid = next_id()
+                    for okey in okeys:
+                        owner[okey] = eid
+                    if len(owner) > 400:
+                        for k in list(owner)[:100]:
+                            del owner[k]
                     if how in ("now", "mem"):
                         name, tr, msg, tag, kind, ch = val
                         out_q.put((name, tr, msg, tag, kind, eid, ch, msg, trade_of(msg), how == "mem"))
@@ -1822,6 +1907,21 @@ def run_app():
                 item = out_q.get_nowait()
             except queue.Empty:
                 break
+            if item[0] == "__fix__":
+                _f, fid, n2, c2, t2 = item
+                for e in reversed(entries):
+                    if e[5] == fid:
+                        if n2 and not e[0]:
+                            e[0] = n2
+                        if c2 and not e[7]:
+                            e[7] = c2
+                        if t2 and e[8] != t2:  # S>/B> 를 확실히 읽었으면 그걸로 바로잡기
+                            e[8] = t2
+                            e[9] = None
+                            check_watch(e)
+                        break
+                changed = True
+                continue
             if item[0] == "__update__":
                 for e in reversed(entries):
                     if e[5] == item[1]:
