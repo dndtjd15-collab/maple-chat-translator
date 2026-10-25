@@ -1,1 +1,1 @@
-{"version": 18, "note": "[클로 Attack 주문서: 중급] -> [아대공격력 주문서]", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 19, "note": "AI 꺼짐이면 Claude를 전혀 안 씀(연결 테스트·보내기 포함), KFAN=태극부채", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

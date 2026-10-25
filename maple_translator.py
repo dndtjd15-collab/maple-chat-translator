@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 18  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 19  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1393,7 +1393,7 @@ def run_app():
                     copy_text(quick), show_send(quick, "▶ 빠른 번역 복사됨 · AI가 다듬는 중…", "#e8ecf4")))
             except Exception as e:  # noqa: BLE001
                 root.after(0, lambda err=str(e): show_send(raw, f"빠른 번역 실패: {err}", "#ff7b7b"))
-            if ai.enabled:
+            if ai.enabled and not cfg.get("ai_paused"):
                 try:
                     better = prefix + ai_outbound(ai, body_text, label)
                     if better.strip():
@@ -1690,7 +1690,7 @@ def run_app():
                         kor = glossary.restore(prot, slots)  # 용어만 한국어로 바꾼 원문 (찜 검색용)
                         out_q.put((name, glossary.restore(translated[val], slots), msg, None, kind, eid, ch,
                                    kor, trade_of(msg)))
-                        if ai.enabled:
+                        if ai.enabled and not cfg.get("ai_paused"):
                             ai_q.put((eid, msg))
                 if batch:
                     if err and err != state.get("last_err"):
@@ -1704,6 +1704,8 @@ def run_app():
                 time.sleep(wait)
 
     def ai_worker():
+        while cfg.get("ai_paused"):  # AI 꺼져 있으면 연결 테스트도 안 함 (사용량 0)
+            time.sleep(1)
         try:
             test = ai.translate_batch(["gz tyfp"])
             out_q.put((None, f"✦ AI 번역 연결 확인 완료 (테스트: gz tyfp → {test[0]})", None, "info", None, 0))
