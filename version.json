@@ -1,1 +1,1 @@
-{"version": 44, "note": "가격 버그 수정(+1 M.Def 를 100만으로 읽던 문제), 마방·물방 용어, Earring OCR 변형 귀고리 처리", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}
+{"version": 45, "note": "일상 대화 번역 강화: 외국 게이머 슬랭·밈(ngl, lowkey, skill issue, touch grass 등) 70여 개를 한국 게이머 말투로, 말투 세기 유지, (추정) 표시 제거", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat"]}

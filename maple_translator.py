@@ -18,7 +18,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 44  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 45  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1316,7 +1316,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
 - 금액: k = 천, m = 백만. 한국식 만 단위로 바꿔. 예) 500k -> 50만, 1.2m -> 120만, 175k -> 17만5천.
 - 주문서: MA = 마력, att = 공격력, 60% = 60%, 귀 지력 60%(earring INT 60%), 장공 60%(glove att 60%), 장마(glove MA), 완마/스마(wand/staff MA), 전민/전지/전힘/전운(overall DEX/INT/STR/LUK).
 - 줄임말: gz = 축하해, ty = 고마워, tyfp = 파티 고마워, brb = 금방 올게, gtg = 가봐야겠다, afk = 잠수, ks = 겹사, kpq = 커파, pq = 파퀘, fm = 자유시장, ch = 채널, cc = 채널 이동, pots = 물약, leech = 쩔, imo = 내 생각엔, lol/lmao = ㅋㅋ.
-- 직업: sin = 어쌔신, dit/bandit = 시프, I/L = 썬콜, F/P = 불독, cleric = 클레릭, fighter = 파이터, page = 페이지, spearman = 스피어맨, hunter = 헌터, xbow = 사수.
+- 직업: sin = 어쌔신, dit/bandit = 시프, I/L = 썬콜, F/P = 불독, cleric = 클레릭, fighter = 파이터, page = 페이지, spearman = 스피어맨, hunter = 헌터, crossbowman = 사수 (단, xbow 60% 처럼 주문서·무기 얘기면 xbow = 석궁).
 - 아이템 이름은 한국 메이플 공식 이름을 알면 그 이름으로, 모르면 영어 그대로 둬.
 - [대괄호] 아이템 링크: 대괄호는 유지하고, 안의 한글은 한 글자도 바꾸지 말고 그대로, 영어 부분만 한국 메이플 공식 이름으로 번역해.
   예) [Emerald Earrings] → [에메랄드 귀고리], [장갑 Attack 주문서] → [장갑 공격력 주문서], [에메랄드 귀고리] → [에메랄드 귀고리]
@@ -1329,7 +1329,12 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
   포르투갈어(브라질): kkkk=ㅋㅋㅋ, vc=너, mn=야, tmj=ㄱㅅ/파이팅, vendo/compro=팝니다/삽니다, pq=왜.
   필리핀(타갈로그): po=요, pre/pare=형, tara=가자, sige=ㅇㅋ, salamat=고마워.
   베트남어: ae=형들/다들, dc=됨, ko/k=안 돼/아니, mn=다들.
-- OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측한 뒤 그걸 한국어로 번역하고, 앞에 (추정)을 붙여. 영어를 그대로 출력하지 마.
+- OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측해서 자연스럽게 번역해. (추정) 같은 표시는 붙이지 마. 도저히 알 수 없는 찌꺼기면 "번역 불가"라고만 써.
+- 일상 대화(잡담·농담·드립·감정 표현)는 메이플 하는 한국 친구가 단톡방에서 말하듯 자연스럽게 의역해:
+  · 말투 세기를 그대로 살려: 장난이면 장난스럽게(ㅋㅋ, ㅎㅎ), 화내면 세게, 비꼬면 비꼬게, 정중하면 존댓말. 기본은 반말 게이머 말투.
+  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"=개쩐다, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ.
+  · 사람 이름·지명·스포츠 팀(Heat 등)·게임 밖 고유명사는 그대로 두고 나머지만 번역.
+  · 질문은 질문으로(…?), 감탄은 감탄으로. 문장 끝 이모티콘(:D, :), xD, <3)은 ㅋㅋ/ㅎㅎ/♥ 정도로 바꾸거나 그대로.
 - 줄 끝에 ⟪용어 적용: ...⟫ 가 있으면, 그건 메이플 용어 사전으로 미리 바꿔둔 문장이야. 거기 나온 한국어 용어(노작, 크뎀, 장공, 귀지력, 목장갑, 17만5천 같은 금액, 25채널, 2개 등)는 바꾸지 말고 그대로 써서 자연스러운 문장으로 다듬어. 출력에는 ⟪⟫ 부분을 쓰지 마.
 - 원문에 S>/B>/WTS/WTB/selling/buying 같은 표시가 없으면 [팝니다]/[삽니다]를 새로 붙이지 마.
 - 거래 줄임말은 절대 영어로 남기지 마: pmo/PMO = "가격 제시 귓 주세요", obo = "가격 제시 받아요", pm = "귓 주세요", c/o = 현재 최고가, a/w = 즉시 낙찰가.
@@ -1349,7 +1354,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
 5|gz on 2nd job!! tyfp
 6|L>KPQ need 1 more, 3/4
 예시 출력:
-1|[팝니다] 레드 바이퍼 +2, 니암 +4 / [삽니다] 쿰비 29만
+1|[팝니다] 레드 바이퍼 +2, 니암 +4 / [삽니다] 금비 표창 29만
 2|여기 있던 어쌔신 거짓말 탐지기 걸렸어?
 3|[팝니다] +14 공 69 단케 50만 (가격 제안 가능) / [삽니다] 장공 60%
 4|INKWELL님 시프 버프 좀 주세요
