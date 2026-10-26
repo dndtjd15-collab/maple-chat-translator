@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 59  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 60  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1414,6 +1414,7 @@ class ExpTracker:
         self.cands = []          # 필요 경험치 후보 (현재 경험치 ÷ 퍼센트)
         self.need = None
         self.level = None        # 레벨 표로 알아낸 현재 레벨
+        self.lvl_wait = []       # 레벨업 확인 대기 중인 퍼센트들
         self.last_ok = None
         self.fails = 0
 
@@ -1464,6 +1465,23 @@ class ExpTracker:
             self.last["need"] = self.need
             self.last["cur"] = int(round(self.need * self.last["pct"] / 100))
 
+    def _confirm_levelup(self, rd):
+        """퍼센트가 크게 떨어졌을 때 진짜 레벨업인지 확인.
+        - 다음 레벨 필요 경험치로 계산한 숫자와 읽은 숫자가 맞으면 바로 인정
+        - 아니면 낮은 퍼센트가 3번 연속 비슷하게 읽혀야 인정 ('69.82%'를 '9.82%'로 잘못 읽은 것 걸러냄)"""
+        p, c = rd["pct"], rd.get("cur")
+        if self.level and 0 < self.level + 1 < len(EXP_TABLE) and c is not None and p >= 0.3:
+            nxt = EXP_TABLE[self.level + 1]
+            if abs(c - nxt * p / 100) <= max(80, nxt * 0.002):
+                return True
+        if not hasattr(self, "lvl_wait"):
+            self.lvl_wait = []
+        self.lvl_wait.append(p)
+        w = self.lvl_wait[-3:]
+        if len(w) >= 3 and max(w) - min(w) <= 1.0:
+            return True
+        return False
+
     def _cur(self, rd):
         """퍼센트와 맞는 현재 경험치 (숫자를 잘못 읽었으면 퍼센트로 계산)."""
         if not self.need:
@@ -1489,7 +1507,10 @@ class ExpTracker:
             self.last = now
             return
         lp = self.last["pct"]
-        if lp - p > 40:   # 레벨업
+        if lp - p > 40 and not self._confirm_levelup(rd):
+            return  # 레벨업처럼 보이지만 아직 확실하지 않음 (숫자를 잘못 읽었을 수 있음)
+        self.lvl_wait = []
+        if lp - p > 40:   # 레벨업 (확인됨)
             self.gained_pct += (100 - lp) + p
             if self.last["need"] and self.last["cur"] is not None:
                 self.gained += max(0, self.last["need"] - self.last["cur"])

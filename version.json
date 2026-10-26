@@ -1,1 +1,1 @@
-{"version": 59, "note": "파티·귓속말 등 색깔 채팅을 색으로 따로 뽑아 읽기(투명 채팅창 뒤 맵 때문에 깨지던 문제), 맵의 빨간 부분을 CH 배지로 착각하던 문제 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 60, "note": "경험치 측정: 퍼센트를 잘못 읽어서(69.82%→9.82%) 레벨업으로 착각하던 문제 수정 - 레벨업은 확인된 뒤에만 인정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
