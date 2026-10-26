@@ -1,1 +1,1 @@
-{"version": 55, "note": "고확·확성기의 노란 아이템 이름([Chocolate Label Ring] 등)이 번역에서 빠지던 문제 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 56, "note": "일반·파티 채팅 잘 보이게: [대화] 탭 추가, 대화 줄 크고 굵게 + 왼쪽 색 막대, 확성기는 살짝 작게, 줄바꿈 꼬리 조각 숨김", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}

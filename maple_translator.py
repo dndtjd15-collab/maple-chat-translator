@@ -1596,6 +1596,7 @@ def watch_match(watches, texts, trade):
 # 보기 탭: 이름 -> 보여줄 종류 (None = 전부)
 VIEW_TABS = {
     "전체": None,
+    "대화": {"일반", "파티", "귓속말", "길드", "친구"},
     "일반": {"일반"},
     "파티": {"파티"},
     "고확": {"고확"},
@@ -2279,10 +2280,17 @@ def run_app():
     for _k, _bg in {"확성기": "#3d2533", "고확": "#3f3410", "특확": "#123b37"}.items():
         body.tag_configure("bg_" + _k, background=_bg)
         style_tags.add("bg_" + _k)
-    for _k, _fg in {"파티": "#ff9fd0", "귓속말": "#8dff6a", "길드": "#c9a6ff", "친구": "#ffbf4d",
-                    "확성기": "#ffe3f1", "고확": "#fff1c2", "특확": "#d6fff9", "일반": "#ffffff"}.items():
-        body.tag_configure("tx_" + _k, foreground=_fg)
+    _talk_font = ("Malgun Gothic", cfg["font_size"] + 1, "bold")       # 일반·파티 등 대화는 크고 굵게
+    _mega_font = ("Malgun Gothic", max(8, cfg["font_size"] - 1))       # 확성기류는 살짝 작게
+    for _k, _fg in {"파티": "#ff8fcf", "귓속말": "#8dff6a", "길드": "#c9a6ff", "친구": "#ffbf4d",
+                    "확성기": "#f3d3e3", "고확": "#f5e6b8", "특확": "#c8f2ec", "일반": "#ffffff"}.items():
+        body.tag_configure("tx_" + _k, foreground=_fg,
+                           font=_mega_font if _k in ("확성기", "고확", "특확") else _talk_font)
         style_tags.add("tx_" + _k)
+    # 대화 줄 왼쪽 색 막대 (확성기 사이에서도 일반·파티 채팅이 눈에 띄게)
+    for _k, _c in {"일반": "#e8ecf4", "파티": "#ff5fb8", "귓속말": "#5dff3a", "길드": "#b38bff", "친구": "#ffa51f"}.items():
+        body.tag_configure("bar_" + _k, foreground=_c, font=("Malgun Gothic", cfg["font_size"] + 1, "bold"))
+        style_tags.add("bar_" + _k)
     body.tag_raise("watchmsg")
     body.tag_raise("watchbar")
     for _k, _c in KIND_COLORS.items():
@@ -2432,6 +2440,8 @@ def run_app():
             if hit:
                 body.insert("end", f" ★ 찜: {hit} ", "watchbar")
                 body.insert("end", "\n")
+            if ("bar_" + kname) in style_tags:
+                body.insert("end", "▌", "bar_" + kname)
             if kind:
                 body.insert("end", f"[{kind}] ", "k_" + kind)
             if name:
@@ -2549,6 +2559,12 @@ def run_app():
                     if _TOOLTIP_RE.match(raw):
                         continue  # 아이템 설명창이 겹쳐 보인 것 (MaxHP : +10 등)
                     name, msg, ch = parse_line(raw)
+                    width0 = ocr.last_img.width if getattr(ocr, "last_img", None) is not None else 0
+                    if (not name and not pending[0] and idx > 0 and (idx - 1) not in fresh and lines[idx - 1][1]
+                            and width0 and lines[idx - 1][1][0] + lines[idx - 1][1][2] >= width0 * 0.85
+                            and len(msg.split()) <= 4 and not trade_of(msg)):
+                        dlog("DROP-WRAP", msg)  # 이미 띄운 긴 줄의 줄바꿈 꼬리 ('eople', 'ngrats!') -> 따로 안 띄움
+                        continue
                     if ch and not name and not pending[0]:
                         report_issue("닉네임 못 읽음 (배지는 찾음)", raw, img=ocr.last_img, rect=rect)
                     if name and not msg.strip():
