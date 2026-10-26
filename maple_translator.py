@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 57  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 58  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -252,6 +252,7 @@ class Glossary:
             out = out + "  (" + ", ".join(missing) + ")"
         out = apply_ko_terms(re.sub(r"\s+([,.!?:])", r"\1", out))
         out = re.sub(r"\+\s+(\d)", r"+\1", out)
+        out = re.sub(r"(\d)-?\s*칸 확장 쿠폰", r"\1칸 확장 쿠폰", out)  # [Selective 5-slot Coupon] -> 선택 5칸 확장 쿠폰
         out = re.sub(r"(표창|주문서|귀고리|장갑|완드|스태프|상자|쿠폰)(\s+\1)+", r"\1", out)  # '월비 표창 표창' 같은 중복 정리
         out = re.sub(r"(\[(팝니다|삽니다|교환합니다|구합니다)\])(\s*,?\s*\1)+", r"\1", out)  # [팝니다] [팝니다] -> 하나로
         out = re.sub(r"\[\s+", "[", out)
@@ -511,6 +512,10 @@ def is_my_nametag(msg, my_name):
 
 
 
+_NAMETAG_STOP = {"congrats", "grats", "thanks", "nice", "how", "what", "the", "you", "and", "for", "sell", "selling",
+                 "buy", "buying", "price", "offer", "party", "guild", "fashion", "crate", "mystery", "aurora", "obtained",
+                 "ngl", "tbh", "lmao", "lol", "omg", "thx", "plz", "pls", "gg", "wait", "here", "where", "lets", "come",
+                 "want", "need", "have", "just", "this", "that", "with", "yes", "yeah", "nope", "okay", "sorry", "thank"}
 NAMETAG_WORDS = set()  # 내 이름표 옆에 같이 읽히는 단어 (펫 이름·길드 이름 등) - 실행 중에 배움
 
 
@@ -518,8 +523,8 @@ def nametag_like(msg, my_name):
     """닉네임 없는 짧은 줄이 캐릭터 이름표 조각인지 (채팅창이 투명해서 뒤에 있는 캐릭터 이름이 읽힌 것).
     'song oong', 'Blac UUI', 'Black', 'SungWoong31ack Kitty' 같은 것."""
     me = re.sub(r"[^a-z]", "", (my_name or "").lower())
-    toks = [t for t in re.split(r"\s+", msg or "") if t]
-    if not toks or len(toks) > 4:
+    toks = [t for t in re.split(r"\s+", msg or "") if re.search(r"[A-Za-z]", t)]  # 글자 없는 기호 조각은 빼고 셈
+    if not toks or len(toks) > 5:
         return False
     letters = re.sub(r"[^a-z]", "", (msg or "").lower().replace("vv", "w").replace("0", "o"))
     if not letters:
@@ -531,23 +536,50 @@ def nametag_like(msg, my_name):
         if common >= max(4, int(len(me) * 0.6)):
             for t in toks:  # 같이 붙어 읽힌 다른 단어(펫·길드 이름)도 기억
                 w = re.sub(r"[^A-Za-z]", "", t)
-                if len(w) >= 3 and SequenceMatcher(None, me, w.lower()).ratio() < 0.5:
-                    NAMETAG_WORDS.add(w.lower())
+                if (len(w) >= 3 and not w.isupper() and w.lower() not in _NAMETAG_STOP and w.lower() not in _CHAT_SHORT
+                        and SequenceMatcher(None, me, w.lower()).ratio() < 0.5 and len(NAMETAG_WORDS) < 60):
+                    NAMETAG_WORDS.add(w.lower())  # 펫·길드 이름은 대문자로 시작 (Black Kitty)
             return True
     def known(w):
-        return any(w == k or (len(w) >= 3 and (k.startswith(w) or w.startswith(k[:4]))) for k in NAMETAG_WORDS)
+        for k in NAMETAG_WORDS:
+            if w == k or (len(w) >= 3 and (k.startswith(w) or w.startswith(k[:4]))):
+                return True
+            if len(w) >= 3 and len(k) >= 4 and (w in k or k in w):  # 'itty' / 'Kitty', 'lack' / 'Black'
+                return True
+            if len(w) >= 4 and SequenceMatcher(None, w, k).ratio() >= 0.8:  # 'Kittv' / 'Kitty'
+                return True
+        return False
+
+    def mine(w):  # 내 이름 조각 ('sung', 'oong', 'sungv', 'sunc')
+        if len(me) < 5 or len(w) < 3:
+            return False
+        if w in me or any(me[i:i + 4] in w for i in range(len(me) - 3)):
+            return True
+        n = len(w)
+        return n <= len(me) and max(SequenceMatcher(None, w, me[i:i + n]).ratio() for i in range(len(me) - n + 1)) >= 0.75
+
     hit = rest_chat = False
+    unknown = []
     for t in toks:
-        w = re.sub(r"[^a-z]", "", t.lower())
+        w = re.sub(r"[^a-z]", "", t.lower().replace("vv", "w").replace("0", "o"))
         if not w:
             continue
-        if known(w):
+        if known(w) or mine(w):
             hit = True
             continue
         word = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", t)
         if re.fullmatch(r"[a-z]{2,}", word) or word.lower() in _CHAT_SHORT or len(word) > 4:
             rest_chat = True  # 대화 같은 단어가 섞여 있으면 진짜 채팅일 수 있음
-    return hit and not rest_chat
+            unknown.append(word)
+    if hit and not rest_chat:
+        return True
+    # 'Black Kitty Sung' 처럼 이름표 조각이 2개 이상이고 모르는 단어가 1개뿐이면 그 단어도 이름표(펫·길드 이름)로 배움
+    if hit and len(unknown) == 1 and len(toks) - 1 >= 2 and len(NAMETAG_WORDS) < 60 \
+            and unknown[0].lower() not in _CHAT_SHORT and unknown[0].lower() not in _NAMETAG_STOP \
+            and unknown[0][:1].isupper() and not unknown[0].isupper():
+        NAMETAG_WORDS.add(re.sub(r"[^a-z]", "", unknown[0].lower()))
+        return True
+    return False
 
 def text_quality(text):
     """OCR 결과가 얼마나 '사람이 쓴 글' 같은지 0~1 점수 (찌꺼기 걸러내기·두 OCR 결과 중 고르기용)."""
@@ -1747,6 +1779,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
   · 말투 세기를 그대로 살려: 장난이면 장난스럽게(ㅋㅋ, ㅎㅎ), 화내면 세게, 비꼬면 비꼬게, 정중하면 존댓말. 기본은 반말 게이머 말투.
   · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"=개쩐다, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ.
   · 게이머 표현: "repot"/"repotting"=물약 사러 감, "scalper(s)"=되팔이, "bot check"=매크로 검사, "W me"/"whisp me"=귓 주세요, "mega"/"smega"=확성기, "last smega"=마지막 확성기, "min"(스탯 뒤)=이상, "x left"=x개 남음, "for sale"=팝니다, "first come"/"fcfs"=선착순.
+  · 주문서·강화 얘기: "60s"/"10s"/"30s"(주문서 얘기일 때)=60%/10%/30% 주문서, "bricked"/"boomed"=작 다 실패해서 템 망함(터짐), "skem"/"scam"=사기, "s/b"=시작가, "buy now"(파는 사람 문구)=지금 바로 사세요, "take this off my hands"/"take dis off my handz"=떨이로 넘겨요(빨리 처분), "poached"=자리 뺏김, "we're full"/"been full"=파티 꽉 찼어, "wsp"/"whisp"=귓 주세요.
   · 사람 이름·지명·스포츠 팀(Heat 등)·게임 밖 고유명사는 그대로 두고 나머지만 번역.
   · 질문은 질문으로(…?), 감탄은 감탄으로. 문장 끝 이모티콘(:D, :), xD, <3)은 ㅋㅋ/ㅎㅎ/♥ 정도로 바꾸거나 그대로.
 - 줄 끝에 ⟪용어 적용: ...⟫ 가 있으면, 그건 메이플 용어 사전으로 미리 바꿔둔 문장이야. 거기 나온 한국어 용어(노작, 크뎀, 장공, 귀지력, 목장갑, 17만5천 같은 금액, 25채널, 2개 등)는 바꾸지 말고 그대로 써서 자연스러운 문장으로 다듬어. 출력에는 ⟪⟫ 부분을 쓰지 마.

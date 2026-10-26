@@ -1,1 +1,1 @@
-{"version": 57, "note": "투명 채팅창 뒤 맵/캐릭터 이름표 때문에 생기는 오류 줄이기: 순백색 글자 추가 판독, 이름표 조각(이름·펫·길드명) 자동 학습해서 숨김", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 58, "note": "이름표 조각(Black Kitty·sung oong 등) 더 잘 숨김, 선택 5칸 확장 쿠폰·전신 갑옷·두손도끼·s/b(시작가)·wsp 등 용어 추가, 게이머 은어(60s·bricked·poached) 번역 규칙 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
