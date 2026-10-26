@@ -128,7 +128,14 @@
     "n00b": "newbie",
     "repottin": "buying potions again",
     "repotting": "buying potions again",
-    "repot": "buy potions again"
+    "repot": "buy potions again",
+    "is the goat": "is the best",
+    "the goat": "the best",
+    "ongrats": "congratulations",
+    "ngrats": "congratulations",
+    "ngratsll": "congratulations",
+    "coiigiats": "congratulations",
+    "congratsll": "congratulations"
   },
   "terms": {
     "S>": "[팝니다]",
@@ -1124,7 +1131,11 @@
     "5-slot coupon": "5칸 확장 쿠폰",
     "5 slot coupon": "5칸 확장 쿠폰",
     "slot coupon": "칸 확장 쿠폰",
-    "dye": "염색"
+    "dye": "염색",
+    "gfas": "장공",
+    "ono": "(가격 제시 받아요)",
+    "scrol": "주문서",
+    "send offer": "가격 제안 귓 주세요"
   },
   "terms_case": {
     "MA": "마력",

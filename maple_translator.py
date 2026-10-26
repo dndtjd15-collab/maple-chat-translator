@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 61  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 62  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -197,6 +197,7 @@ class Glossary:
                       money, text, flags=re.IGNORECASE)
 
         # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
+        text = re.sub(r"(?<![A-Za-z])(?:CH|Ch|ch)[Il|]\s?(\d)(?![0-9A-Za-z])", lambda m: hold("1" + m.group(1) + "채널"), text)  # OCR: CH17 -> 'CHI 7'
         text = re.sub(r"(?<![A-Za-z])(?:ch|cc|chan)\.?\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,2})\s?ch(?![A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])lvl?\.?\s?(\d{1,3})(?![0-9])", lambda m: hold(m.group(1) + "레벨"), text, flags=re.I)
@@ -209,6 +210,7 @@ class Glossary:
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
                  "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀"}
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|atk|att|acc|crit|cdmg|cd|cr)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
@@ -529,7 +531,7 @@ def nametag_like(msg, my_name):
     letters = re.sub(r"[^a-z]", "", (msg or "").lower().replace("vv", "w").replace("0", "o"))
     if not letters:
         return False
-    if len(me) >= 5:
+    if len(me) >= 5 and len(letters) <= len(me) + 10:  # 긴 줄(파티 대화 등)은 우연히 글자가 겹칠 수 있음
         # 내 이름과 글자가 많이 겹치면 이름표 (일부 글자가 깨져도)
         sm = SequenceMatcher(None, me, letters)
         common = sum(b.size for b in sm.get_matching_blocks())
@@ -1891,17 +1893,17 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
   포르투갈어(브라질): kkkk=ㅋㅋㅋ, vc=너, mn=야, tmj=ㄱㅅ/파이팅, vendo/compro=팝니다/삽니다, pq=왜.
   필리핀(타갈로그): po=요, pre/pare=형, tara=가자, sige=ㅇㅋ, salamat=고마워.
   베트남어: ae=형들/다들, dc=됨, ko/k=안 돼/아니, mn=다들.
-- OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측해서 자연스럽게 번역해. (추정) 같은 표시는 붙이지 마. 도저히 알 수 없는 찌꺼기면 "번역 불가"라고만 써.
+- OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측해서 자연스럽게 번역해. (추정) 같은 표시나 "~의 오타로 보여서" 같은 설명은 절대 붙이지 말고 번역만 써. 도저히 알 수 없는 찌꺼기면 "번역 불가"라고만 써.
 - 일상 대화(잡담·농담·드립·감정 표현)는 메이플 하는 한국 친구가 단톡방에서 말하듯 자연스럽게 의역해:
   · 말투 세기를 그대로 살려: 장난이면 장난스럽게(ㅋㅋ, ㅎㅎ), 화내면 세게, 비꼬면 비꼬게, 정중하면 존댓말. 기본은 반말 게이머 말투.
-  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"=개쩐다, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ.
+  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"/"the goat"/"GOAT"=개쩐다/최고, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ.
   · 게이머 표현: "repot"/"repotting"=물약 사러 감, "scalper(s)"=되팔이, "bot check"=매크로 검사, "W me"/"whisp me"=귓 주세요, "mega"/"smega"=확성기, "last smega"=마지막 확성기, "min"(스탯 뒤)=이상, "x left"=x개 남음, "for sale"=팝니다, "first come"/"fcfs"=선착순.
   · 주문서·강화 얘기: "60s"/"10s"/"30s"(주문서 얘기일 때)=60%/10%/30% 주문서, "bricked"/"boomed"=작 다 실패해서 템 망함(터짐), "skem"/"scam"=사기, "s/b"=시작가, "buy now"(파는 사람 문구)=지금 바로 사세요, "take this off my hands"/"take dis off my handz"=떨이로 넘겨요(빨리 처분), "poached"=자리 뺏김, "we're full"/"been full"=파티 꽉 찼어, "wsp"/"whisp"=귓 주세요.
   · 사람 이름·지명·스포츠 팀(Heat 등)·게임 밖 고유명사는 그대로 두고 나머지만 번역.
   · 질문은 질문으로(…?), 감탄은 감탄으로. 문장 끝 이모티콘(:D, :), xD, <3)은 ㅋㅋ/ㅎㅎ/♥ 정도로 바꾸거나 그대로.
 - 줄 끝에 ⟪용어 적용: ...⟫ 가 있으면, 그건 메이플 용어 사전으로 미리 바꿔둔 문장이야. 거기 나온 한국어 용어(노작, 크뎀, 장공, 귀지력, 목장갑, 17만5천 같은 금액, 25채널, 2개 등)는 바꾸지 말고 그대로 써서 자연스러운 문장으로 다듬어. 출력에는 ⟪⟫ 부분을 쓰지 마.
 - 원문에 S>/B>/WTS/WTB/selling/buying 같은 표시가 없으면 [팝니다]/[삽니다]를 새로 붙이지 마.
-- 거래 줄임말은 절대 영어로 남기지 마: pmo/PMO = "가격 제시 귓 주세요", obo = "가격 제시 받아요", pm = "귓 주세요", c/o = 현재 최고가, a/w = 즉시 낙찰가.
+- 거래 줄임말은 절대 영어로 남기지 마: pmo/PMO = "가격 제시 귓 주세요", obo/ono = "가격 제시 받아요", pm = "귓 주세요", c/o = 현재 최고가, a/w = 즉시 낙찰가.
 - OCR이 철자를 깨뜨린 단어는 메이플 거래 문맥으로 원래 단어를 추측해서 번역해 (확실할 때만).
   예) "parrina"/"earrina"/"earing" → earring(귀고리), "f 7."/"6O%"/"6o%" 가 주문서 자리에 있으면 60%, "thesp" → these, "lnt"/"1nt" → INT
   예) "thesp + 3 parrina f 7. Int for 400k, PM" → [팝니다] 이거 +3 귀지력 60% 3개 40만, 귓 주세요
@@ -1944,6 +1946,11 @@ TRADE_FIX = [
 
 def polish_ai(text):
     """AI가 놓친 거래 표기를 마저 한국어로 바꾸고 중복 표현 정리."""
+    # AI가 ⟪용어 적용⟫ 안내문이나 "오타로 보여서 ~" 같은 설명을 같이 써 버린 경우 정리
+    text = re.sub(r"\s*\(?⟪\s*용어\s*적용[^⟫]*⟫.*$", "", text)
+    text = re.sub(r"⟪[^⟫]*⟫|[⟪⟫]", " ", text)
+    if re.search(r"오타로 보|추정됩니다|번역합니다|로 보입니다|부분 제거|그대로 쓰면", text):
+        return ""  # 설명문 -> 버리고 구글 번역 유지
     text = apply_ko_terms(text)
     for pat, rep in TRADE_FIX:
         text = pat.sub(rep, text)
