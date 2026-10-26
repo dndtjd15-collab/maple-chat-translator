@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 55  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 56  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -197,10 +197,13 @@ class Glossary:
                       money, text, flags=re.IGNORECASE)
 
         # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
-        text = re.sub(r"(?<![A-Za-z])(?:ch|cc)\.?\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z])(?:ch|cc|chan)\.?\s?(\d{1,2})(?![0-9A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,2})\s?ch(?![A-Za-z])", lambda m: hold(m.group(1) + "채널"), text, flags=re.I)
-        text = re.sub(r"(?<![A-Za-z])lv\.?\s?(\d{1,3})(?![0-9])", lambda m: hold(m.group(1) + "레벨"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z])lvl?\.?\s?(\d{1,3})(?![0-9])", lambda m: hold(m.group(1) + "레벨"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,3})\s?(min|mins|minutes)(?![A-Za-z])", lambda m: hold(m.group(1) + "분"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9])(?:\((\d{1,3})\s?left\)|\(?(\d{1,3})\)?\s?left)(?![A-Za-z])",
+                      lambda m: hold((m.group(1) or m.group(2)) + "개 남음"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?w?def\s?min(?![A-Za-z])", lambda m: hold("방어력 " + m.group(1) + " 이상"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])(\d{1,3})\s?(sets?)(?![A-Za-z])", lambda m: hold(m.group(1) + "세트"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
@@ -1077,7 +1080,27 @@ def normalize_trade(msg):
     # ": S>" 의 콜론을 K/I 로 읽어서 "KS>" "IS>" 가 되는 경우
     msg = re.sub(r"(?:(?<=\s)|^)[KkIl|:;.][SB]\s*>", lambda m: m.group(0)[1:], msg)
     # 금액 앞 숫자 1 을 l / I 로 읽은 경우: "l .8m" -> "1.8m", "I mil" -> "1 mil"
-    msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s?\.(\d+)\s?((?i:k|m|mil))(?![A-Za-z])", r"1.\1\2", msg)
+    msg = re.sub(r"(?<=\.\d)rn(?![A-Za-z])", "m", msg)  # "I .5rn" -> "I .5m" (m 을 rn 으로 읽음)
+    msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s?\.\s?(\d+)\s?((?i:k|m|mil))(?![A-Za-z])", r"1.\1\2", msg)
+    # 금액 사이 끼어든 공백: "1 .7m" / "1. 1k" -> 1.7m / 1.1k, "21 0k" / "2 00k" -> 210k / 200k
+    msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\s\.(\d{1,2})\s?((?i:k|m|mil))(?![A-Za-z])", r"\1.\2\3", msg)
+    msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\.\s(\d)((?i:k|m|mil))(?![A-Za-z])", r"\1.\2\3", msg)
+    msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\s(0{1,2})\s?((?i:k))(?![A-Za-z])", r"\1\2\3", msg)
+    # 60% 를 600/0 으로 읽은 경우 (GFA600/0 -> GFA 60%)
+    msg = re.sub(r"(?<![\d/])(10|30|60|70|100)0/0(?![\d])", r" \1%", msg)
+    # 10 을 IO / 1 O 로 읽은 경우: "+IO" "IOLuk" "1 Oint 2cd" -> +10 / 10Luk / 10 INT
+    msg = re.sub(r"\+\s?[Il][O0](?![A-Za-z0-9])", "+10", msg)
+    msg = re.sub(r"(?<![A-Za-z0-9])[1Il][O0](?=\s?(?i:luk|str|dex|int|att|atk)(?![A-Za-z]))", "10", msg)
+    msg = re.sub(r"(?<![A-Za-z0-9])[1Il]\s[O0]int(?![A-Za-z])", "10 INT", msg, flags=re.I)
+    # IOK / I OOk / lOOk -> 10K / 100k (1 을 I·l, 0 을 대문자 O 로 읽음)
+    msg = re.sub(r"(?<![A-Za-z0-9])([1-9Il])\s?([O0]{1,2})\s?([kK])(?![A-Za-z])",
+                 lambda m: m.group(1).replace("I", "1").replace("l", "1") + m.group(2).replace("O", "0") + m.group(3), msg)
+    msg = re.sub(r"(?<=\d)([kK])(ea|each|mesos?)(?![A-Za-z])", r"\1 \2", msg, flags=re.I)  # 150kea -> 150k ea
+    msg = re.sub(r"(?<=\d)L[lI|1]JK(?![A-Za-z])", "LUK", msg)  # 8LlJK -> 8LUK
+    msg = re.sub(r"(?<=\d)\s?cr[il1|]t\.?\s?(?:dmg|damage)(?![A-Za-z])", "CD", msg, flags=re.I)  # 3CRlT DMG -> 3CD (크뎀)
+    msg = re.sub(r"(?<![A-Za-z0-9])(\d)1uk(?![A-Za-z])", r"\1luk", msg, flags=re.I)  # 51uk -> 5luk
+    msg = re.sub(r"(?<![A-Za-z])[Il][Vv][Il]\s?(?=\d)", "lvl ", msg)  # IVI 50 -> lvl 50
+    msg = re.sub(r"(?<![A-Za-z])FM\s?(?=(?:ch|cc)\.?\s?\d)", "FM ", msg, flags=re.I)  # FMch27 -> FM ch27
     msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s(mil|mill|million)(?![A-Za-z])", r"1 \1", msg)
 
     def fix(m):
@@ -1458,7 +1481,7 @@ def prices_in(text):
     out = []
     for m in _MONEY_RE.finditer(text):
         num = float(m.group(1).replace(",", "."))
-        out.append(int(num * (1_000 if m.group(2).lower().startswith("k") else 1_000_000)))
+        out.append(int(round(num * (1_000 if m.group(2).lower().startswith("k") else 1_000_000))))
     for m in _MONEY_KO_RE.finditer(text):
         if m.group(1):
             out.append(int(float(m.group(1)) * 100_000_000 + int(m.group(2) or 0) * 10_000))
@@ -1467,6 +1490,13 @@ def prices_in(text):
         else:
             out.append(int(m.group(6)) * 1_000 + int(m.group(7) or 0) * 100)
     return [p for p in out if p >= 1000]
+
+
+def ai_output_ok(orig, tr):
+    """AI 번역을 써도 되는지: 가격(메소 금액)이 원문과 똑같을 때만."""
+    if not tr or "(추정)" in tr:
+        return False
+    return set(prices_in(normalize_trade(orig))) == set(prices_in(tr))
 
 
 def parse_price_input(text):
@@ -1610,6 +1640,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
 - 일상 대화(잡담·농담·드립·감정 표현)는 메이플 하는 한국 친구가 단톡방에서 말하듯 자연스럽게 의역해:
   · 말투 세기를 그대로 살려: 장난이면 장난스럽게(ㅋㅋ, ㅎㅎ), 화내면 세게, 비꼬면 비꼬게, 정중하면 존댓말. 기본은 반말 게이머 말투.
   · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"=개쩐다, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ.
+  · 게이머 표현: "repot"/"repotting"=물약 사러 감, "scalper(s)"=되팔이, "bot check"=매크로 검사, "W me"/"whisp me"=귓 주세요, "mega"/"smega"=확성기, "last smega"=마지막 확성기, "min"(스탯 뒤)=이상, "x left"=x개 남음, "for sale"=팝니다, "first come"/"fcfs"=선착순.
   · 사람 이름·지명·스포츠 팀(Heat 등)·게임 밖 고유명사는 그대로 두고 나머지만 번역.
   · 질문은 질문으로(…?), 감탄은 감탄으로. 문장 끝 이모티콘(:D, :), xD, <3)은 ㅋㅋ/ㅎㅎ/♥ 정도로 바꾸거나 그대로.
 - 줄 끝에 ⟪용어 적용: ...⟫ 가 있으면, 그건 메이플 용어 사전으로 미리 바꿔둔 문장이야. 거기 나온 한국어 용어(노작, 크뎀, 장공, 귀지력, 목장갑, 17만5천 같은 금액, 25채널, 2개 등)는 바꾸지 말고 그대로 써서 자연스러운 문장으로 다듬어. 출력에는 ⟪⟫ 부분을 쓰지 마.
@@ -2525,6 +2556,8 @@ def run_app():
                         continue
                     if cfg.get("ai_memory", True):
                         saved = memory.get(msg)
+                        if saved and not ai_output_ok(msg, saved):
+                            saved = None  # 저장된 번역의 가격이 원문과 다르면 쓰지 않음 (다시 번역)
                         if saved:  # 예전에 AI가 번역한 똑같은 채팅 -> Claude·구글 없이 바로
                             ordered.append((cur_key, "mem", (name, saved, msg, None, kind, ch)))
                             continue
@@ -2599,6 +2632,9 @@ def run_app():
             try:
                 outs = ai.translate_batch([m for _i, m in job])
                 for (eid, _m), tr in zip(job, outs):
+                    if tr and not ai_output_ok(_m, tr):
+                        dlog("AI-REJECT", _m, "=>", tr)
+                        continue  # 가격이 원문과 다르면 -> 구글 번역 유지 (저장도 안 함)
                     if tr:
                         out_q.put(("__update__", eid, tr))
                 fails = 0

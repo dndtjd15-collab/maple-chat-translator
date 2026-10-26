@@ -1,1 +1,1 @@
-{"version": 55, "note": "가격 오독 수정(l .8m→180만, 17.5k→1만7천5백), 슬롯 확장권·회피·싼 캐시템 등 용어 추가, 짧은 채팅(tyty, rn) 안 버리게", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 56, "note": "가격 OCR 띄어쓰기 오독(21 0k·1 .7m·I .5rn) 보정, AI 번역 가격이 원문과 다르면 안 씀, IVI·LlJK·600/0 보정, 용어 50개 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
