@@ -1,1 +1,1 @@
-{"version": 58, "note": "이름표 조각(Black Kitty·sung oong 등) 더 잘 숨김, 선택 5칸 확장 쿠폰·전신 갑옷·두손도끼·s/b(시작가)·wsp 등 용어 추가, 게이머 은어(60s·bricked·poached) 번역 규칙 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 59, "note": "파티·귓속말 등 색깔 채팅을 색으로 따로 뽑아 읽기(투명 채팅창 뒤 맵 때문에 깨지던 문제), 맵의 빨간 부분을 CH 배지로 착각하던 문제 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}

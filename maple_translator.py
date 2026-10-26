@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 58  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 59  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -907,6 +907,17 @@ class ScreenOCR:
         for g0, g1 in groups:
             width = g1 - g0 + 1
             if 6 <= width <= max(45, h * 3):
+                # 진짜 CH 배지는 흰 알약 위의 빨간 글씨 -> 주변에 흰색이 충분히 있어야 함
+                # (채팅창이 투명해서 뒤에 비친 맵의 빨간 부분을 배지로 착각하는 것 방지)
+                tot = white = 0
+                for cx in range(max(0, g0 - 2), min(img.width, g1 + 3)):
+                    for cy in range(y0, y1):
+                        p = px[cx, cy]
+                        tot += 1
+                        if min(p) > 200:
+                            white += 1
+                if tot and white < tot * 0.15:
+                    continue
                 # 배지 = 빨간 글씨 앞 여백 + 글씨 + 귀 아이콘
                 return g0 - 3, g1 + int(width * 0.9) + 3, (g0, g1)
         return None
@@ -1051,6 +1062,28 @@ class ScreenOCR:
         return m.point(lambda v: 0 if v else 255).convert("RGB")
 
     @staticmethod
+    def _color_mask(img, colors, tol=48):
+        """지정한 글자색(파티 분홍·귓속말 초록·길드 보라·친구 주황) 픽셀만 검은색으로.
+        투명한 채팅창 뒤로 맵이 비쳐도 색깔 글자만 깨끗하게 뽑아서 읽으려고."""
+        from PIL import Image, ImageChops
+        rgb = img.convert("RGB")
+        acc = None
+        for c in colors:
+            d = ImageChops.difference(rgb, Image.new("RGB", rgb.size, c))
+            r, g, b = d.split()
+            mx = ImageChops.lighter(ImageChops.lighter(r, g), b)
+            hit = mx.point(lambda v: 255 if v <= tol else 0)
+            acc = hit if acc is None else ImageChops.lighter(acc, hit)
+        # 확성기 분홍 배경처럼 색이 비슷한 '배경 덩어리'는 지움 (가로줄의 40% 넘게 칠해진 줄 = 배경)
+        w, h = acc.size
+        from PIL import ImageDraw
+        dr = ImageDraw.Draw(acc)
+        for y in range(h):
+            if acc.crop((0, y, w, y + 1)).histogram()[255] > w * 0.4:
+                dr.line([(0, y), (w, y)], fill=0)
+        return acc.point(lambda v: 0 if v else 255).convert("RGB")
+
+    @staticmethod
     def _yellow_mask(img):
         """노란 아이템 링크 글자([Chocolate Label Ring] 같은 것)만 검은색으로.
         고확·확성기 배경(진한 노랑/주황) 위에서 영어 OCR이 아이템 이름을 통째로 빼먹는 문제 해결."""
@@ -1080,7 +1113,16 @@ class ScreenOCR:
                     continue
                 used.add(j)
                 low = normalize(text)
+                # 아이템 링크는 항상 [ ] 안에 있음 -> 대괄호 안 단어만 씀 (맵의 노란 바위 같은 찌꺼기 방지)
+                inside, keep = False, []
                 for w in w2:
+                    if "[" in w[0]:
+                        inside = True
+                    if inside:
+                        keep.append(w)
+                    if "]" in w[0]:
+                        inside = False
+                for w in keep:
                     if len(re.sub(r"[^A-Za-z0-9]", "", w[0])) < 2 and not re.search(r"[\[\]]", w[0]):
                         continue
                     wx0, wx1 = w[1], w[1] + w[3]
@@ -1152,6 +1194,31 @@ class ScreenOCR:
                 en = self._pick_better(en, self._ocr(wm2, self.lang))
             except Exception as e:  # noqa: BLE001
                 dlog("WHITE-ERR", repr(e))
+            try:
+                cm = self._color_mask(img, [c for k, c, _ in TEXT_KINDS if k != "공지"])
+                if cm.convert("L").histogram()[0] > 200:  # 색깔 글자(파티·귓속말 등)가 있을 때만
+                    cl = self._ocr(cm, self.lang)
+                    en = self._pick_better(en, cl)
+                    # 원래 OCR이 아예 못 찾은 색깔 줄(맵 배경에 묻힌 파티 채팅 등)은 새 줄로 추가
+                    for t2, r2, w2 in cl:
+                        if not r2 or text_quality(t2) < 0.6:
+                            continue
+                        y0, y1 = r2[1], r2[1] + r2[3]
+
+                        def ov(r):
+                            return r and min(y1, r[1] + r[3]) - max(y0, r[1]) > r2[3] * 0.5
+                        same = [x for x in en if ov(x[1])]
+                        if any(x[0] == t2 for x in same):
+                            continue
+                        q2 = text_quality(t2)
+                        if not same or all(text_quality(x[0]) < min(0.45, q2 - 0.15) or
+                                           text_quality(x[0]) < q2 - 0.25 for x in same):
+                            # 겹치는 원래 줄이 없거나 다 찌꺼기면 -> 색깔 글자로 읽은 줄로 바꿈
+                            dlog("COLOR-ADD", t2, "replaces", [x[0] for x in same])
+                            en = [x for x in en if x not in same] + [(t2, r2, w2)]
+                    en.sort(key=lambda x: (x[1][1] if x[1] else 0))
+            except Exception as e:  # noqa: BLE001
+                dlog("COLORMASK-ERR", repr(e))
             try:
                 ym = self._yellow_mask(img)
                 if ym.convert("L").getextrema()[0] < 128:  # 노란 글자가 있을 때만 한 번 더 읽음
