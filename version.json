@@ -1,1 +1,1 @@
-{"version": 56, "note": "가격 OCR 띄어쓰기 오독(21 0k·1 .7m·I .5rn) 보정, AI 번역 가격이 원문과 다르면 안 씀, IVI·LlJK·600/0 보정, 용어 50개 추가", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 55, "note": "고확·확성기의 노란 아이템 이름([Chocolate Label Ring] 등)이 번역에서 빠지던 문제 수정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}

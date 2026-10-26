@@ -972,6 +972,55 @@ class ScreenOCR:
         return mn.point(lambda v: 0 if v > 150 else 255).convert("RGB")
 
     @staticmethod
+    def _yellow_mask(img):
+        """노란 아이템 링크 글자([Chocolate Label Ring] 같은 것)만 검은색으로.
+        고확·확성기 배경(진한 노랑/주황) 위에서 영어 OCR이 아이템 이름을 통째로 빼먹는 문제 해결."""
+        from PIL import ImageChops
+        r, g, b = img.convert("RGB").split()
+        ro = r.point(lambda v: 255 if v > 225 else 0)
+        go = g.point(lambda v: 255 if v > 225 else 0)
+        bo = b.point(lambda v: 255 if 80 < v < 215 else 0)
+        m = ImageChops.darker(ImageChops.darker(ro, go), bo)
+        return m.point(lambda v: 0 if v else 255).convert("RGB")
+
+    @staticmethod
+    def _add_missing_words(en, extra):
+        """다른 방법으로 읽은 단어(extra) 중 원래 줄에 없는 것을 같은 줄 같은 위치에 끼워 넣음."""
+        out = []
+        used = set()
+        for text, rect, ws in en:
+            if not rect or not ws:
+                out.append((text, rect, ws))
+                continue
+            cy = rect[1] + rect[3] / 2
+            add = []
+            for j, (t2, r2, w2) in enumerate(extra):
+                if j in used or not r2 or not w2:
+                    continue
+                if abs((r2[1] + r2[3] / 2) - cy) > max(rect[3], r2[3]) * 0.6:
+                    continue
+                used.add(j)
+                low = normalize(text)
+                for w in w2:
+                    if len(re.sub(r"[^A-Za-z0-9]", "", w[0])) < 2 and not re.search(r"[\[\]]", w[0]):
+                        continue
+                    wx0, wx1 = w[1], w[1] + w[3]
+                    overlap = any(min(wx1, o[1] + o[3]) - max(wx0, o[1]) > w[3] * 0.4 for o in ws)
+                    if not overlap and normalize(w[0]) not in low:
+                        add.append(w)
+            if add:
+                nws = sorted(list(ws) + add, key=lambda w: w[1])
+                ntext = " ".join(w[0] for w in nws)
+                dlog("YELLOW-ADD", text, "=>", ntext)
+                x0 = min(w[1] for w in nws); y0 = min(w[2] for w in nws)
+                x1 = max(w[1] + w[3] for w in nws); y1 = max(w[2] + w[4] for w in nws)
+                out.append((ntext, (int(x0), int(y0), int(x1 - x0), int(y1 - y0)), nws))
+            else:
+                out.append((text, rect, ws))
+        # 원래 줄이 아예 없는 곳에서 읽힌 노란 글자 줄은 버림 (공지 등과 섞이지 않게)
+        return out
+
+    @staticmethod
     def _pick_better(en, en2):
         out = []
         used = set()
@@ -1021,6 +1070,12 @@ class ScreenOCR:
                 en = self._pick_better(en, en2)
             except Exception as e:  # noqa: BLE001
                 dlog("WHITE-ERR", repr(e))
+            try:
+                ym = self._yellow_mask(img)
+                if ym.convert("L").getextrema()[0] < 128:  # 노란 글자가 있을 때만 한 번 더 읽음
+                    en = self._add_missing_words(en, self._ocr(ym, self.lang))
+            except Exception as e:  # noqa: BLE001
+                dlog("YELLOW-ERR", repr(e))
         dlog("OCR-EN", [t[0] for t in en])
         dlog("OCR-KO", [t[0] for t in ko])
         en = self._apply_badges(img, en)
