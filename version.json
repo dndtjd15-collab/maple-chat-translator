@@ -1,1 +1,1 @@
-{"version": 60, "note": "경험치 측정: 퍼센트를 잘못 읽어서(69.82%→9.82%) 레벨업으로 착각하던 문제 수정 - 레벨업은 확인된 뒤에만 인정", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{"version": 61, "note": "경험치 측정 다시 정확하게: 퍼센트와 숫자를 서로 맞춰 보고 자연스럽게 이어지는 값만 사용, 첫 기준값·레벨업은 확인 후 인정 (실제 기록으로 검증: 오차 1% 이내)", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}

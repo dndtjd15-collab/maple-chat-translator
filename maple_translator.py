@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 60  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 61  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1415,6 +1415,7 @@ class ExpTracker:
         self.need = None
         self.level = None        # 레벨 표로 알아낸 현재 레벨
         self.lvl_wait = []       # 레벨업 확인 대기 중인 퍼센트들
+        self.fwd = None          # 크게 오른 값 확인 대기
         self.last_ok = None
         self.fails = 0
 
@@ -1463,7 +1464,6 @@ class ExpTracker:
             self.unpriced = 0.0
         if self.last and self.need:
             self.last["need"] = self.need
-            self.last["cur"] = int(round(self.need * self.last["pct"] / 100))
 
     def _confirm_levelup(self, rd):
         """퍼센트가 크게 떨어졌을 때 진짜 레벨업인지 확인.
@@ -1476,6 +1476,8 @@ class ExpTracker:
                 return True
         if not hasattr(self, "lvl_wait"):
             self.lvl_wait = []
+        if c is not None and self.need and c > self.need * 0.06:
+            return False  # 숫자는 여전히 큼 -> 퍼센트만 잘못 읽은 것
         self.lvl_wait.append(p)
         w = self.lvl_wait[-3:]
         if len(w) >= 3 and max(w) - min(w) <= 1.0:
@@ -1493,6 +1495,8 @@ class ExpTracker:
         return int(round(exp_c))
 
     def feed(self, rd):
+        """읽은 값 하나 반영. 퍼센트와 숫자(현재 경험치÷필요 경험치) 두 가지 후보 중
+        직전 값에서 자연스럽게 이어지는 쪽을 씀 -> '75.01%'를 '8.01%'로 잘못 읽어도 숫자로 바로잡음."""
         if not self.running:
             return
         if not rd or rd.get("pct") is None:
@@ -1501,50 +1505,75 @@ class ExpTracker:
         self.fails = 0
         self.last_ok = time.time()
         self._learn_need(rd)
-        p = rd["pct"]
-        now = {"cur": self._cur(rd), "need": self.need, "pct": p}
+        p_read, c = rd["pct"], rd.get("cur")
+        cands = [p_read]
+        if self.need and c is not None and 0 <= c <= self.need and c >= 1000:
+            cands.append(c * 100 / self.need)
         if self.last is None:
-            self.last = now
+            # 처음 기준값: 비슷한 값이 3번 읽혀야 정함 (첫 값을 잘못 읽으면 계속 틀어지니까)
+            agree = len(cands) == 2 and abs(cands[0] - cands[1]) <= 0.3
+            v = cands[1] if agree else p_read
+            self.odd = [x for x in self.odd if isinstance(x, float)][-4:] + [float(v)]
+            near = [x for x in self.odd if abs(x - v) <= 0.3]
+            if len(near) >= 3:
+                self.last = {"pct": max(near), "need": self.need}
+                self.odd = []
             return
         lp = self.last["pct"]
-        if lp - p > 40 and not self._confirm_levelup(rd):
-            return  # 레벨업처럼 보이지만 아직 확실하지 않음 (숫자를 잘못 읽었을 수 있음)
-        self.lvl_wait = []
-        if lp - p > 40:   # 레벨업 (확인됨)
-            self.gained_pct += (100 - lp) + p
-            if self.last["need"] and self.last["cur"] is not None:
-                self.gained += max(0, self.last["need"] - self.last["cur"])
+        # 1) 평소: 직전 값에서 0~1% 사이로 오른 후보 (몇 초 사이에 1% 넘게 오를 일은 없음)
+        ok = [x for x in cands if -0.03 <= x - lp <= 1.0]
+        if ok:
+            p = min(ok, key=lambda x: abs(x - lp - 0.05))
+            if p - lp > 0.15:
+                # 한 번에 0.15% 넘게 오름 = 드묾 -> 다음 값도 그만큼 높게 읽혀야 인정 (숫자 오독 방지)
+                fw = getattr(self, "fwd", None)
+                self.fwd = p
+                if fw is None or not any(abs(x - fw) <= 0.1 or x > fw for x in cands):
+                    return
+            self.fwd = None
+            dp = max(0.0, p - lp)
+            self.gained_pct += dp
+            if self.need:
+                self.gained += int(round(self.need * dp / 100))
+            else:
+                self.unpriced += dp
+            self.last = {"pct": max(p, lp), "need": self.need}
+            self.odd, self.lvl_wait = [], []
+            return
+        # 2) 레벨업: 직전이 높고(85%+) 지금이 아주 낮음(5% 미만) + 확인
+        if lp >= 85 and p_read < 5 and self._confirm_levelup(rd):
+            self.gained_pct += (100 - lp) + p_read
+            if self.need:
+                self.gained += int(round(self.need * (100 - lp) / 100))
             else:
                 self.unpriced += 100 - lp
             self.levelups += 1
-            self.cands, self.odd = [], []
-            self.last = {"cur": None, "need": None, "pct": p}
+            self.cands, self.odd, self.lvl_wait = [], [], []
             if self.level:
                 self.set_level(self.level + 1)   # 다음 레벨 필요 경험치는 표에서 바로
-                self.gained += int(round(self.need * p / 100)) if self.need else 0
-                if not self.need:
-                    self.unpriced += p
+                if self.need:
+                    self.gained += int(round(self.need * p_read / 100))
+                else:
+                    self.unpriced += p_read
             else:
                 self.need = None
-                self.unpriced += p   # 새 레벨 필요 경험치를 알게 되면 경험치로 바꿈
+                self.unpriced += p_read
+            self.last = {"pct": p_read, "need": self.need}
             return
-        dp = p - lp
-        if dp < 0 or dp > 15:
-            # 잘못 읽은 값 -> 무시. 비슷한 값이 3번 연속이면 그걸 새 기준으로
-            self.odd.append(p)
-            if len(self.odd) >= 3 and max(self.odd[-3:]) - min(self.odd[-3:]) <= 0.2:
-                self.last, self.odd = now, []
-            return
-        self.odd = []
-        self.gained_pct += dp
-        if self.need:
-            if now["cur"] is not None and self.last["cur"] is not None and self.last["need"] == self.need:
-                self.gained += max(0, now["cur"] - self.last["cur"])
+        # 3) 그 밖의 튀는 값 = 잘못 읽음 -> 무시. 단, 같은 값이 5번 연속(죽어서 경험치가 깎임 등)이면 새 기준으로
+        self.odd.append(p_read)
+        w = self.odd[-5:]
+        if len(w) >= 5 and max(w) - min(w) <= 0.3 and all(abs(x - p_read) <= 0.5 for x in cands):
+            # 같은 값이 계속 읽힘 = 진짜 값. 그 사이 못 읽은 동안 오른 만큼(또는 잘못 높게 센 만큼)을 반영
+            # (마우스가 숫자를 가렸다가 비켜났을 때, 죽어서 경험치가 깎였을 때 등)
+            delta = p_read - lp
+            self.gained_pct = max(0.0, self.gained_pct + delta)
+            if self.need:
+                self.gained = max(0, self.gained + int(round(self.need * delta / 100)))
             else:
-                self.gained += int(round(self.need * dp / 100))
-        else:
-            self.unpriced += dp
-        self.last = now
+                self.unpriced = max(0.0, self.unpriced + delta)
+            self.last = {"pct": p_read, "need": self.need}
+            self.odd = []
 
     def gained_exp(self):
         if self.unpriced and self.need:
@@ -2251,7 +2280,8 @@ def run_app():
                 w.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), kind, exp_state["seg_map"] or exp_map.get().strip(),
                             exp_state["seg_party"] or exp_party.get(), int(t), exp.gained_exp(), round(exp.gained_pct, 2),
                             int(exp.rate()), round(exp.pct_rate(), 2), exp.levelups,
-                            last.get("cur") or "", exp.need or ""])
+                            (int(exp.need * last["pct"] / 100) if exp.need and last.get("pct") is not None else ""),
+                            exp.need or ""])
         except Exception as e:  # noqa: BLE001
             dlog("EXP-LOG-ERR", repr(e))
 
