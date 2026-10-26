@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 56  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 57  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -510,6 +510,45 @@ def is_my_nametag(msg, my_name):
     return found
 
 
+
+NAMETAG_WORDS = set()  # 내 이름표 옆에 같이 읽히는 단어 (펫 이름·길드 이름 등) - 실행 중에 배움
+
+
+def nametag_like(msg, my_name):
+    """닉네임 없는 짧은 줄이 캐릭터 이름표 조각인지 (채팅창이 투명해서 뒤에 있는 캐릭터 이름이 읽힌 것).
+    'song oong', 'Blac UUI', 'Black', 'SungWoong31ack Kitty' 같은 것."""
+    me = re.sub(r"[^a-z]", "", (my_name or "").lower())
+    toks = [t for t in re.split(r"\s+", msg or "") if t]
+    if not toks or len(toks) > 4:
+        return False
+    letters = re.sub(r"[^a-z]", "", (msg or "").lower().replace("vv", "w").replace("0", "o"))
+    if not letters:
+        return False
+    if len(me) >= 5:
+        # 내 이름과 글자가 많이 겹치면 이름표 (일부 글자가 깨져도)
+        sm = SequenceMatcher(None, me, letters)
+        common = sum(b.size for b in sm.get_matching_blocks())
+        if common >= max(4, int(len(me) * 0.6)):
+            for t in toks:  # 같이 붙어 읽힌 다른 단어(펫·길드 이름)도 기억
+                w = re.sub(r"[^A-Za-z]", "", t)
+                if len(w) >= 3 and SequenceMatcher(None, me, w.lower()).ratio() < 0.5:
+                    NAMETAG_WORDS.add(w.lower())
+            return True
+    def known(w):
+        return any(w == k or (len(w) >= 3 and (k.startswith(w) or w.startswith(k[:4]))) for k in NAMETAG_WORDS)
+    hit = rest_chat = False
+    for t in toks:
+        w = re.sub(r"[^a-z]", "", t.lower())
+        if not w:
+            continue
+        if known(w):
+            hit = True
+            continue
+        word = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", t)
+        if re.fullmatch(r"[a-z]{2,}", word) or word.lower() in _CHAT_SHORT or len(word) > 4:
+            rest_chat = True  # 대화 같은 단어가 섞여 있으면 진짜 채팅일 수 있음
+    return hit and not rest_chat
+
 def text_quality(text):
     """OCR 결과가 얼마나 '사람이 쓴 글' 같은지 0~1 점수 (찌꺼기 걸러내기·두 OCR 결과 중 고르기용)."""
     t = re.sub(r"\x01[^\x01]*\x01", " ", text or "")
@@ -964,12 +1003,20 @@ class ScreenOCR:
             return ["" for _ in items]
 
     @staticmethod
-    def _white_mask(img):
-        """흰색(밝고 무채색) 글자만 검은색으로, 나머지는 흰 배경으로."""
+    def _white_mask(img, strict=False):
+        """흰색(밝고 무채색) 글자만 검은색으로, 나머지는 흰 배경으로.
+        strict=True: 거의 순백색(밝기 215+, 색 차이 작음)만 -> 밝은 맵 배경(하늘·눈·바위) 섞임 줄이기."""
         from PIL import ImageChops
         r, g, b = img.convert("RGB").split()
         mn = ImageChops.darker(ImageChops.darker(r, g), b)
-        return mn.point(lambda v: 0 if v > 150 else 255).convert("RGB")
+        if not strict:
+            return mn.point(lambda v: 0 if v > 150 else 255).convert("RGB")
+        mx = ImageChops.lighter(ImageChops.lighter(r, g), b)
+        sat = ImageChops.subtract(mx, mn)
+        bright = mn.point(lambda v: 255 if v > 215 else 0)
+        gray = sat.point(lambda v: 255 if v < 40 else 0)
+        m = ImageChops.darker(bright, gray)
+        return m.point(lambda v: 0 if v else 255).convert("RGB")
 
     @staticmethod
     def _yellow_mask(img):
@@ -1068,6 +1115,9 @@ class ScreenOCR:
                 wm = self._white_mask(img)
                 en2 = self._ocr(wm, self.lang)
                 en = self._pick_better(en, en2)
+                # 채팅창이 투명해서 밝은 맵 배경이 비칠 때: 더 엄격하게 '진짜 흰색'만 뽑아서 한 번 더
+                wm2 = self._white_mask(img, strict=True)
+                en = self._pick_better(en, self._ocr(wm2, self.lang))
             except Exception as e:  # noqa: BLE001
                 dlog("WHITE-ERR", repr(e))
             try:
@@ -2606,6 +2656,9 @@ def run_app():
                             out_q.put((None, "채팅창 대신 게임 화면(캐릭터 이름표)이 읽히고 있어요. "
                                              "F9로 채팅창 영역을 다시 선택해 주세요", None, "err", None, 0))
                         continue  # 내 캐릭터 이름표를 채팅으로 잘못 읽은 줄 (채팅창 영역이 게임 화면에 겹침)
+                    if not name and not trade_of(msg) and nametag_like(msg, cfg.get("my_name")):
+                        dlog("DROP-NAMETAG2", msg)
+                        continue  # 투명한 채팅창 뒤로 지나간 내 캐릭터 이름표 조각
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if kind == "공지" and cfg.get("hide_notice", True):
