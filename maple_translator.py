@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 69  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 70  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -160,6 +160,10 @@ class Glossary:
         #    [장갑 Attack 주문서] -> 한글 유지 + Attack 만 번역
         def bracket(m):
             inner = m.group(1)
+            mm = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)\s*", inner, re.IGNORECASE)
+            if mm:  # [700k] -> [70만] (대괄호 안 금액의 k 가 '알았어'로 번역되던 문제)
+                num = float(mm.group(1).replace(",", "."))
+                return " [ " + hold(format_meso(num * (1_000 if mm.group(2).lower().startswith("k") else 1_000_000))) + " ] "
             if not re.search(r"[A-Za-z]", inner):
                 return hold(apply_ko_terms(m.group(0)))  # 한글/숫자만 -> 보존 (클로->아대 같은 교체만)
             out = []
@@ -211,6 +215,7 @@ class Glossary:
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
                  "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공"}
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?M\.\s?(atk|att)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text, flags=re.I)  # 101M.Atk -> 101마
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
@@ -268,6 +273,10 @@ def format_meso(value):
         eok, rest = divmod(value, 100_000_000)
         man = rest // 10_000
         return f"{eok}억{man}만" if man else f"{eok}억"
+    if value % 100 and value >= 10_000:  # 64.99k -> 6만4990 (십 단위까지 살림, 9백으로 깎이던 문제)
+        return f"{value // 10_000}만{value % 10_000:04d}"
+    if value % 100 and value >= 1_000:  # 1.55k -> 1550메소
+        return f"{value}메소"
     if value >= 10_000:  # 한국식: 17만5천 / 1만8천 / 120만
         man, rest = divmod(value, 10_000)
         chun, rest = divmod(rest, 1_000)
@@ -1948,6 +1957,10 @@ def prices_in(text):
     for m in _MONEY_RE.finditer(text):
         num = float(m.group(1).replace(",", "."))
         out.append(int(round(num * (1_000 if m.group(2).lower().startswith("k") else 1_000_000))))
+    def exact(m):  # format_meso 의 '6만4990' / '1550메소' 표기
+        out.append(int(m.group(1) or 0) * 10_000 + int(m.group(2) or m.group(3)))
+        return " "
+    text = re.sub(r"(?<![\d.])(?:(\d+)만(\d{4})|(\d{4,5})메소)(?!\d)", exact, text)
     for m in _MONEY_KO_RE.finditer(text):
         if m.group(1):
             out.append(int(float(m.group(1)) * 100_000_000 + int(m.group(2) or 0) * 10_000))
@@ -3004,7 +3017,8 @@ def run_app():
                     width = ocr.last_img.width if getattr(ocr, "last_img", None) is not None else 0
                     if (not name and cands and cands[-1]["idx"] == idx - 1 and len(cands[-1]["msg"]) >= 25
                             and cands[-1]["right"] >= width * 0.85  # 윗줄이 오른쪽 끝까지 꽉 찼을 때만 = 줄바꿈
-                            and not re.match(r"^\s*[SBTL]\s?>", msg)):
+                            and not re.match(r"^\s*[SBTL]\s?>", msg)
+                            and not _NOTICE_RE.search(msg)):  # 아랫줄 [공지] 가 윗줄 채팅에 붙던 문제
                         cands[-1]["msg"] += ("" if cands[-1]["msg"].endswith(" ") else " ") + msg
                         cands[-1]["msg"] = normalize_trade(cands[-1]["msg"])  # 줄바꿈에 잘린 금액 '5' + '00K' -> 500K
                         cands[-1]["keys"].append(cur_key)

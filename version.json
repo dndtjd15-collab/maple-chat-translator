@@ -1,6 +1,6 @@
 {
-  "version": 69,
-  "note": "'Thisl .3M'·'70kS>' 금액 누락 수정, 20magt→20마, 태극부채(Korean Pan)·폴암·귀고리(earin)·5칸 확장 쿠폰·장공(loves attack)·전민 등 사전 61개 추가",
+  "version": 70,
+  "note": "[700k] 대괄호 금액이 '알았어'로 번역되던 문제·64.99k 십 단위 누락 수정, 101M.Atk→101마, [공지]가 채팅에 붙던 문제 수정, 수묵화·올스탯·귀운·파운더 상자 등 사전 30개 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
