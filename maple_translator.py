@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 66  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 67  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1294,6 +1294,16 @@ def normalize_trade(msg):
     msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\s(0{1,2})\s?((?i:k))(?![A-Za-z])", r"\1\2\3", msg)
     # 60% 를 600/0 으로 읽은 경우 (GFA600/0 -> GFA 60%)
     msg = re.sub(r"(?<![\d/])(10|30|60|70|100)0/0(?![\d])", r" \1%", msg)
+    msg = re.sub(r"(?<![\d/.,])1\s00/0(?![\d])", " 10%", msg)  # "LUK 1 00/0" -> 10%
+    msg = re.sub(r"(?<=[A-Za-z\s])G[O0]{2}/0(?![\d])", " 60%", msg)  # "SCROLLGOO/0" -> 60%
+    msg = re.sub(r"(?<=[A-Za-z])[Il|f]\s?[O0]{2}\s?%", " 100%", msg)  # "SCROLLIOO%" -> SCROLL 100%
+    # % 를 70 으로 읽은 경우: "Speed 6070" "1070 LUK" "ACC6070 20" -> 60% / 10%
+    #   "6070145k" -> "60% 145k" (60억으로 읽히던 문제)
+    msg = re.sub(r"(?<![\d/.,+$])(10|60)70(\d{2,3}(?:\.\d)?\s?[kK])(?![A-Za-z])", r" \1% \2", msg)
+    msg = re.sub(r"(?<![\d/.,+$])(10|60)7\.\s?(\d{2,3}\s?[kK])(?![A-Za-z])", r" \1% \2", msg)  # "607.45k" -> 60% 45k
+    msg = re.sub(r"(?<![\d/.,+$])(10|60)70(?=\s|$|[.,!@)]|(?i:luk|str|dex|int)(?![A-Za-z]))", r" \1% ", msg)
+    msg = re.sub(r"(?<=\d)km(?![A-Za-z])", "k", msg)  # "50km" -> 50k
+    msg = re.sub(r"(?<![A-Za-z0-9.+])(\d{1,3})\}<(?=\s|[-—–@]|$)", r"\1k", msg)  # "10}<" -> 10k
     # 10 을 IO / 1 O 로 읽은 경우: "+IO" "IOLuk" "1 Oint 2cd" -> +10 / 10Luk / 10 INT
     msg = re.sub(r"\+\s?[Il][O0](?![A-Za-z0-9])", "+10", msg)
     msg = re.sub(r"(?<![A-Za-z0-9])[1Il][O0](?=\s?(?i:luk|str|dex|int|att|atk)(?![A-Za-z]))", "10", msg)
