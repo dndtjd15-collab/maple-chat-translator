@@ -1,6 +1,6 @@
 {
-  "version": 64,
-  "note": "시세 자동 수집 끔 (메소워치가 프로그램 접속 차단). 거래 채팅 기록은 계속 저장",
+  "version": 65,
+  "note": "메소워치 전체 시세: 크롬이 다운로드 폴더에 받은 mesowatch_*.json 을 시세기록/market.db 로 자동 저장",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

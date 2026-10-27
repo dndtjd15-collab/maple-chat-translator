@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 64  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 65  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1730,6 +1730,73 @@ class MarketCollector:
         finally:
             db.close()
 
+
+class MarketImporter:
+    """크롬(Claude 브리핑)이 다운로드 폴더에 내려받은 mesowatch_*.json (메소워치 전체 시세)을
+    시세기록/market.db 에 넣고, 파일은 시세기록/raw/ 로 옮김. AI 호출 없음 (토큰 0)."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+
+    def start(self):
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def dirs(self):
+        home = os.path.expanduser("~")
+        out = [self.cfg.get("download_dir") or "", os.path.join(home, "Downloads"), os.path.join(home, "다운로드")]
+        return [d for d in dict.fromkeys(out) if d and os.path.isdir(d)]
+
+    def _loop(self):
+        time.sleep(20)
+        while True:
+            try:
+                for d in self.dirs():
+                    for fn in sorted(os.listdir(d)):
+                        if fn.startswith("mesowatch_") and fn.endswith(".json"):
+                            self.import_file(os.path.join(d, fn))
+            except Exception as e:  # noqa: BLE001
+                dlog("MARKET-IMPORT-FAIL", type(e).__name__, e)
+            time.sleep(120)
+
+    def import_file(self, path):
+        import shutil
+        import sqlite3
+        if time.time() - os.path.getmtime(path) < 5:
+            return  # 아직 내려받는 중
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        ts = data.get("ts") or time.strftime("%Y-%m-%d %H:%M")
+        cols = data["cols"]
+        os.makedirs(MARKET_DIR, exist_ok=True)
+        db = sqlite3.connect(MARKET_DB_PATH, timeout=10)
+        try:
+            db.executescript(
+                "CREATE TABLE IF NOT EXISTS items(item_id TEXT PRIMARY KEY, name_en TEXT, name_ko TEXT, category TEXT, tier TEXT, note TEXT);"
+                "CREATE TABLE IF NOT EXISTS price_snapshots(ts TEXT, item_id TEXT, price REAL, p25 REAL, p75 REAL, asks INTEGER,"
+                " sold INTEGER, ask_median REAL, source TEXT, PRIMARY KEY(ts,item_id));"
+                "CREATE TABLE IF NOT EXISTS daily_median(date TEXT, item_id TEXT, median REAL, source TEXT, PRIMARY KEY(date,item_id));")
+            n = 0
+            for row in data["items"]:
+                it = dict(zip(cols, row))
+                name = it.get("name")
+                if not name:
+                    continue
+                db.execute("INSERT OR IGNORE INTO items(item_id, name_en, category) VALUES(?,?,?)", (name, name, it.get("cat")))
+                db.execute("INSERT OR IGNORE INTO price_snapshots VALUES(?,?,?,?,?,?,?,?,?)",
+                           (ts, name, it.get("price"), it.get("p25"), it.get("p75"), it.get("asks"), it.get("sold"),
+                            it.get("askMed"), "meso.watch via chrome"))
+                for d, m in it.get("hist") or []:
+                    if d and m and d < ts[:10]:  # 진행 중인 오늘 중앙값은 확정 전이라 제외
+                        db.execute("INSERT OR IGNORE INTO daily_median VALUES(?,?,?,?)", (d, name, m, "meso.watch"))
+                n += 1
+            db.commit()
+        finally:
+            db.close()
+        raw = os.path.join(MARKET_DIR, "raw")
+        os.makedirs(raw, exist_ok=True)
+        shutil.move(path, os.path.join(raw, os.path.basename(path)))
+        dlog("MARKET-IMPORT", os.path.basename(path), n, "items")
+
 ISSUE_PATH = os.path.join(APP_DIR, "문제기록.txt")
 ISSUE_DIR = os.path.join(APP_DIR, "문제기록_이미지")
 _issue_seen = set()
@@ -2861,6 +2928,7 @@ def run_app():
     trade_log = TradeLog(enabled=cfg.get("trade_log", True))  # 팝니다/삽니다 채팅 기록
     # 메소워치가 프로그램 접속을 막아서(403) 기본은 꺼둠. 시세는 Claude 브리핑이 크롬으로 가져와 기록함.
     MarketCollector(enabled=cfg.get("market_collect", False)).start()
+    MarketImporter(cfg).start()  # 크롬이 받은 메소워치 전체 시세 파일 -> market.db
     retry = []   # 번역 실패해서 다시 시도할 줄 (id, 보호된 문장, 자리표시자)
     fixed = {}   # 항목 id -> 마지막으로 보낸 보완 정보
 
