@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 68  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 69  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1288,6 +1288,9 @@ def normalize_trade(msg):
     # 금액 앞 숫자 1 을 l / I 로 읽은 경우: "l .8m" -> "1.8m", "I mil" -> "1 mil"
     msg = re.sub(r"(?<=\.\d)rn(?![A-Za-z])", "m", msg)  # "I .5rn" -> "I .5m" (m 을 rn 으로 읽음)
     msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s?\.\s?(\d+)\s?((?i:k|m|mil))(?![A-Za-z])", r"1.\1\2", msg)
+    msg = re.sub(r"(?<=[Tt]his)[lI|]\s?\.\s?(\d+)\s?((?i:k|m|mil))(?![A-Za-z])", r" 1.\1\2", msg)  # "Thisl .3M" -> This 1.3M
+    msg = re.sub(r"(?<=\d[kKmM])(?=[SBT]>)", " ", msg)  # "70kS>Earring" -> 70k S>Earring (금액이 안 읽히던 문제)
+    msg = re.sub(r"(?<=\d)\s?magt(?![A-Za-z])", " matt", msg, flags=re.I)  # "20magt" -> 20 matt (마력)
     # 금액 사이 끼어든 공백: "1 .7m" / "1. 1k" -> 1.7m / 1.1k, "21 0k" / "2 00k" -> 210k / 200k
     msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\s\.(\d{1,2})\s?((?i:k|m|mil))(?![A-Za-z])", r"\1.\2\3", msg)
     msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\.\s(\d)((?i:k|m|mil))(?![A-Za-z])", r"\1.\2\3", msg)

@@ -1,6 +1,6 @@
 {
-  "version": 68,
-  "note": "줄바꿈에 잘린 금액(5 00K→50만)·5MlN(500만 오인)·40kl/DEF30k 금액 인식 수정, 숫자만 있는 찌꺼기 줄 숨김, 장마·완드 마력·무테 안경 등 사전 18개 추가",
+  "version": 69,
+  "note": "'Thisl .3M'·'70kS>' 금액 누락 수정, 20magt→20마, 태극부채(Korean Pan)·폴암·귀고리(earin)·5칸 확장 쿠폰·장공(loves attack)·전민 등 사전 61개 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
