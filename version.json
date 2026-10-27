@@ -1,1 +1,11 @@
-{"version": 62, "note": "번역 다듬기: CHI 7→17채널, 16 Matl<→16마, ONO·gfas·scrol·send offer·the goat·축하 오타 사전 추가, AI 설명문/⟪⟫ 섞임 제거, 이름표 오인식 개선", "files": ["maple_translator.py", "maple_glossary.json", "사용법.txt", "실행하기.bat", "설치하기.bat"]}
+{
+  "version": 63,
+  "note": "시세기록: 팝니다/삽니다 채팅을 시세기록/market.db에 저장 + 1시간마다 메소워치 전체 시세 저장 (AI 사용 안 함)",
+  "files": [
+    "maple_translator.py",
+    "maple_glossary.json",
+    "사용법.txt",
+    "실행하기.bat",
+    "설치하기.bat"
+  ]
+}

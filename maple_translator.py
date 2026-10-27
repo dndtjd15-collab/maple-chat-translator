@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 62  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 63  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1610,6 +1610,126 @@ def fmt_eta(sec):
     return f"{m // 60}시간 {m % 60}분" if m >= 60 else f"{m}분"
 
 # ---- 문제 자동 기록: 이상해 보이는 줄을 스스로 찾아서 모아둠 (나중에 한 번에 고치기용) ----
+
+MARKET_DIR = os.path.join(APP_DIR, "시세기록")
+MARKET_DB_PATH = os.path.join(MARKET_DIR, "market.db")  # 시세·거래 저장소 (Claude 브리핑이 분석)
+
+
+class TradeLog:
+    """인게임 팝니다/삽니다 채팅을 시세기록/market.db 에 한 줄씩 기록.
+    AI 호출 없음 (토큰 0). 오류가 나도 번역기는 그대로 돌고 기록만 꺼짐."""
+
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self.db = None
+        self.recent = {}  # 같은 사람이 같은 글을 화면 재인식으로 또 읽은 것 거르기 (90초)
+
+    def _open(self):
+        import sqlite3
+        os.makedirs(MARKET_DIR, exist_ok=True)
+        db = sqlite3.connect(MARKET_DB_PATH, timeout=5)
+        db.execute("CREATE TABLE IF NOT EXISTS chat_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, side TEXT,"
+                   " item_key TEXT, price_text TEXT, repeats INTEGER, raw TEXT, source TEXT)")
+        cols = {r[1] for r in db.execute("PRAGMA table_info(chat_trades)")}
+        for col in ("name", "channel", "kind", "prices"):
+            if col not in cols:
+                db.execute(f"ALTER TABLE chat_trades ADD COLUMN {col} TEXT")
+        db.commit()
+        return db
+
+    def add(self, name, ch, kind, msg):
+        if not self.enabled:
+            return
+        side = trade_of(msg)
+        if not side:
+            return
+        try:
+            now = time.time()
+            key = ((name or "").lower(), re.sub(r"\W+", "", msg.lower()))
+            if now - self.recent.get(key, 0) < 90:
+                return
+            self.recent[key] = now
+            if len(self.recent) > 500:
+                for k, t in list(self.recent.items()):
+                    if now - t > 90:
+                        del self.recent[k]
+            if self.db is None:
+                self.db = self._open()
+            prices = prices_in(msg)
+            self.db.execute(
+                "INSERT INTO chat_trades(ts, side, item_key, price_text, repeats, raw, source, name, channel, kind, prices)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (time.strftime("%Y-%m-%d %H:%M:%S"), "S" if side == "sell" else "B", None,
+                 " ".join(re.findall(r"\d+(?:[.,]\d+)?\s*[kKmM]\b", msg)), 1, msg, "translator live",
+                 name, ch, kind, ",".join(str(p) for p in prices)))
+            self.db.commit()
+        except Exception as e:  # noqa: BLE001
+            dlog("TRADELOG-OFF", type(e).__name__, e)
+            self.enabled = False  # 기록만 끄고 번역은 계속
+
+
+class MarketCollector:
+    """1시간마다 메소워치(meso.watch) 전체 시세를 시세기록/market.db 에 저장 (개인 분석용).
+    AI 호출 없음 (토큰 0). 백그라운드에서 조용히 돌고, 실패하면 다음 시간에 다시 시도."""
+
+    URL = "https://meso.watch/data/list.json"
+
+    def __init__(self, enabled=True, every_sec=3600):
+        self.enabled = enabled
+        self.every = every_sec
+        self.last_ok = None
+
+    def start(self):
+        if self.enabled:
+            threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        time.sleep(120)  # 번역기 켜고 2분 뒤 첫 수집
+        while True:
+            try:
+                n = self.collect_once()
+                self.last_ok = time.time()
+                dlog("MARKET", "saved", n, "items")
+            except Exception as e:  # noqa: BLE001
+                dlog("MARKET-FAIL", type(e).__name__, e)
+            time.sleep(self.every)
+
+    def collect_once(self):
+        import sqlite3
+        import urllib.request
+        req = urllib.request.Request(self.URL, headers={"User-Agent": "Mozilla/5.0 (MapleChatTranslator personal price log)"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        items = data if isinstance(data, list) else (data.get("items") or list(data.values()))
+        os.makedirs(MARKET_DIR, exist_ok=True)
+        db = sqlite3.connect(MARKET_DB_PATH, timeout=10)
+        try:
+            db.executescript(
+                "CREATE TABLE IF NOT EXISTS items(item_id TEXT PRIMARY KEY, name_en TEXT, name_ko TEXT, category TEXT, tier TEXT, note TEXT);"
+                "CREATE TABLE IF NOT EXISTS price_snapshots(ts TEXT, item_id TEXT, price REAL, p25 REAL, p75 REAL, asks INTEGER,"
+                " sold INTEGER, ask_median REAL, source TEXT, PRIMARY KEY(ts,item_id));"
+                "CREATE TABLE IF NOT EXISTS daily_median(date TEXT, item_id TEXT, median REAL, source TEXT, PRIMARY KEY(date,item_id));")
+            ts = time.strftime("%Y-%m-%d %H:00")
+            n = 0
+            for it in items:
+                name = it.get("name")
+                if not name or it.get("price") is None:
+                    continue
+                db.execute("INSERT OR IGNORE INTO items(item_id, name_en, category) VALUES(?,?,?)",
+                           (name, name, it.get("category")))
+                db.execute("INSERT OR IGNORE INTO price_snapshots VALUES(?,?,?,?,?,?,?,?,?)",
+                           (ts, name, it.get("price"), it.get("p25"), it.get("p75"), it.get("asks"),
+                            it.get("sold"), it.get("askMedian"), "meso.watch"))
+                for h in it.get("history") or []:
+                    if h.get("date") and h.get("median") is not None:
+                        db.execute("INSERT OR IGNORE INTO daily_median VALUES(?,?,?,?)",
+                                   (h["date"], name, h["median"], "meso.watch"))
+                n += 1
+            db.commit()
+            return n
+        finally:
+            db.close()
+
 ISSUE_PATH = os.path.join(APP_DIR, "문제기록.txt")
 ISSUE_DIR = os.path.join(APP_DIR, "문제기록_이미지")
 _issue_seen = set()
@@ -2738,6 +2858,8 @@ def run_app():
     # --- 작업 스레드 -------------------------------------------------------
     pending = [None]
     owner = {}   # 화면 줄 키 -> 띄운 항목 id
+    trade_log = TradeLog(enabled=cfg.get("trade_log", True))  # 팝니다/삽니다 채팅 기록
+    MarketCollector(enabled=cfg.get("market_collect", True)).start()  # 1시간마다 시세 저장
     retry = []   # 번역 실패해서 다시 시도할 줄 (id, 보호된 문장, 자리표시자)
     fixed = {}   # 항목 id -> 마지막으로 보낸 보완 정보
 
@@ -2829,6 +2951,8 @@ def run_app():
                         kind = "공지"  # 게임 공지·가챠 알림
                         if cfg.get("hide_notice", True):
                             continue  # 아예 안 보여줌 (번역도 안 함)
+                    if kind not in ("귓속말", "공지"):
+                        trade_log.add(name, ch, kind, msg)  # 팝니다/삽니다 채팅만 시세기록에 저장 (AI 안 씀)
                     if ch == "보낸 귓" or (name and cfg.get("my_name") and name.lower() == cfg["my_name"].lower()):
                         ordered.append((cur_key, "now", (name, msg, msg, None, kind, ch)))
                         continue
