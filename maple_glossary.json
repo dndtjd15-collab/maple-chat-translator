@@ -138,7 +138,8 @@
     "congratsll": "congratulations",
     "boyf": "boyfriend",
     "4 me": "for me",
-    "wannabuy": "wanna buy"
+    "wannabuy": "wanna buy",
+    "flappy birthday": "happy birthday"
   },
   "terms": {
     "S>": "[팝니다]",
@@ -1239,7 +1240,24 @@
     "pay first": "선입금",
     "lmk price": "가격 알려주세요",
     "unwanted nx": "안 쓰는 캐시템",
-    "white label xing": "화이트 라벨 링"
+    "white label xing": "화이트 라벨 링",
+    "wand mat": "완드 마력",
+    "m.atk": "마력",
+    "gloves for m.atk": "장마",
+    "glove for m.atk": "장마",
+    "gloves for matk": "장마",
+    "glove for matk": "장마",
+    "frameless glass": "무테 안경",
+    "a./w": "즉시 낙찰가",
+    "slot coupo": "칸 확장 쿠폰",
+    "slot coup": "칸 확장 쿠폰",
+    "sel 5-slot": "선택 5칸 확장 쿠폰",
+    "white label ringl": "화이트 라벨링",
+    "w'hite label ring": "화이트 라벨링",
+    "name tag ringl": "명찰 반지",
+    "safety charml": "안전 부적",
+    "earr": "귀고리",
+    "ioluk": "10운"
   },
   "terms_case": {
     "MA": "마력",

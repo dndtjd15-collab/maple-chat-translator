@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 67  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 68  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1303,6 +1303,9 @@ def normalize_trade(msg):
     msg = re.sub(r"(?<![\d/.,+$])(10|60)7\.\s?(\d{2,3}\s?[kK])(?![A-Za-z])", r" \1% \2", msg)  # "607.45k" -> 60% 45k
     msg = re.sub(r"(?<![\d/.,+$])(10|60)70(?=\s|$|[.,!@)]|(?i:luk|str|dex|int)(?![A-Za-z]))", r" \1% ", msg)
     msg = re.sub(r"(?<=\d)km(?![A-Za-z])", "k", msg)  # "50km" -> 50k
+    msg = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3}(?:\.\d)?[kK])[l|I](?=\s|$|[A-Za-z])", r"\1 / ", msg)  # "40klslime" -> 40k / slime
+    msg = re.sub(r"(?<![A-Za-z0-9.])(\d{1,2})\s?M[lI1|]N(?:S)?(?![A-Za-z])", r"\1 min", msg)  # "5MlN" -> 5 min (500만 아님)
+    msg = re.sub(r"(?<=[A-Za-z]{2})(\d{1,3}(?:\.\d)?[kK])(?![A-Za-z0-9])", r" \1", msg)  # "DEF30k" -> DEF 30k
     msg = re.sub(r"(?<![A-Za-z0-9.+])(\d{1,3})\}<(?=\s|[-—–@]|$)", r"\1k", msg)  # "10}<" -> 10k
     # 10 을 IO / 1 O 로 읽은 경우: "+IO" "IOLuk" "1 Oint 2cd" -> +10 / 10Luk / 10 INT
     msg = re.sub(r"\+\s?[Il][O0](?![A-Za-z0-9])", "+10", msg)
@@ -3000,6 +3003,7 @@ def run_app():
                             and cands[-1]["right"] >= width * 0.85  # 윗줄이 오른쪽 끝까지 꽉 찼을 때만 = 줄바꿈
                             and not re.match(r"^\s*[SBTL]\s?>", msg)):
                         cands[-1]["msg"] += ("" if cands[-1]["msg"].endswith(" ") else " ") + msg
+                        cands[-1]["msg"] = normalize_trade(cands[-1]["msg"])  # 줄바꿈에 잘린 금액 '5' + '00K' -> 500K
                         cands[-1]["keys"].append(cur_key)
                         cands[-1]["idx"] = idx
                         cands[-1]["right"] = (rect[0] + rect[2]) if rect else 0
@@ -3011,6 +3015,9 @@ def run_app():
                     cur_key, name, msg, ch, kind = c["keys"], c["name"], c["msg"], c["ch"], c["kind"]
                     dlog("LINE", kind, repr(name), ch, msg)
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
+                    if not name and not re.search(r"[A-Za-z가-힣]", msg):
+                        dlog("DROP-JUNK", msg)
+                        continue  # 닉네임 없이 숫자·기호만 있는 줄 ('20 461', '452') = 다른 UI 숫자를 읽은 찌꺼기
                     if not name and not HANGUL_RE.search(msg) and not trade_of(msg) and text_quality(msg) < 0.55:
                         dlog("DROP-JUNK", msg)
                         continue  # 닉네임도 없고 글자가 엉망인 줄 = OCR 찌꺼기
