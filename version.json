@@ -1,6 +1,6 @@
 {
-  "version": 65,
-  "note": "메소워치 전체 시세: 크롬이 다운로드 폴더에 받은 mesowatch_*.json 을 시세기록/market.db 로 자동 저장",
+  "version": 66,
+  "note": "가격 범위(15-45k→1만5천-4만5천)·OCR '651<'→65k 수정, 수묵화/화이트 라벨 OCR 변형·장공·급처·네고X·ㄳ 등 사전 65개 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

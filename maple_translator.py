@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 65  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 66  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -209,9 +209,9 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
-                 "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀"}
+                 "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공"}
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|atk|att|acc|crit|cdmg|cd|cr)(?![A-Za-z])",
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
                       lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
@@ -1308,6 +1308,13 @@ def normalize_trade(msg):
     msg = re.sub(r"(?<![A-Za-z])[Il][Vv][Il]\s?(?=\d)", "lvl ", msg)  # IVI 50 -> lvl 50
     msg = re.sub(r"(?<![A-Za-z])FM\s?(?=(?:ch|cc)\.?\s?\d)", "FM ", msg, flags=re.I)  # FMch27 -> FM ch27
     msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s(mil|mill|million)(?![A-Za-z])", r"1 \1", msg)
+    # OCR: k 를 '1<' 로 읽음 "651<—" -> "65k—" (하트 <3 은 제외)
+    msg = re.sub(r"(?<![A-Za-z0-9.+])(\d{1,3})1<(?=\s|[-—–]|$)", r"\1k", msg)
+    # 가격 범위 "15-45k" -> "15k-45k" (앞 숫자가 1.5만이 아니라 15 로 남지 않게)
+    def _range(m):
+        a, b, u = m.group(1), m.group(2), m.group(3)
+        return f"{a}{u}-{b}{u}" if float(a) < float(b) else m.group(0)
+    msg = re.sub(r"(?<![A-Za-z0-9.+\-])(\d{1,3}(?:\.\d)?)\s?-\s?(\d{1,3}(?:\.\d)?)\s?(k|m)(?![A-Za-z])", _range, msg, flags=re.I)
 
     def fix(m):
         before = msg[:m.start()]
