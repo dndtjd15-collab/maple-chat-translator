@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 63  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 64  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -2859,7 +2859,8 @@ def run_app():
     pending = [None]
     owner = {}   # 화면 줄 키 -> 띄운 항목 id
     trade_log = TradeLog(enabled=cfg.get("trade_log", True))  # 팝니다/삽니다 채팅 기록
-    MarketCollector(enabled=cfg.get("market_collect", True)).start()  # 1시간마다 시세 저장
+    # 메소워치가 프로그램 접속을 막아서(403) 기본은 꺼둠. 시세는 Claude 브리핑이 크롬으로 가져와 기록함.
+    MarketCollector(enabled=cfg.get("market_collect", False)).start()
     retry = []   # 번역 실패해서 다시 시도할 줄 (id, 보호된 문장, 자리표시자)
     fixed = {}   # 항목 id -> 마지막으로 보낸 보완 정보
 

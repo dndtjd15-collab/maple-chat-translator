@@ -1,6 +1,6 @@
 {
-  "version": 63,
-  "note": "시세기록: 팝니다/삽니다 채팅을 시세기록/market.db에 저장 + 1시간마다 메소워치 전체 시세 저장 (AI 사용 안 함)",
+  "version": 64,
+  "note": "시세 자동 수집 끔 (메소워치가 프로그램 접속 차단). 거래 채팅 기록은 계속 저장",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
