@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 70  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 71  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -213,10 +213,10 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
-                 "matk": "마", "matt": "마", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공"}
+                 "matk": "마", "matt": "마", "watt": "공", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공"}
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?M\.\s?(atk|att)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text, flags=re.I)  # 101M.Atk -> 101마
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa)(?![A-Za-z])",
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa|ma)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
                       lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
@@ -1328,6 +1328,10 @@ def normalize_trade(msg):
                  lambda m: m.group(1).replace("I", "1").replace("l", "1") + m.group(2).replace("O", "0") + m.group(3), msg)
     msg = re.sub(r"(?<=\d)([kK])(ea|each|mesos?)(?![A-Za-z])", r"\1 \2", msg, flags=re.I)  # 150kea -> 150k ea
     msg = re.sub(r"(?<=\d)L[lI|1]JK(?![A-Za-z])", "LUK", msg)  # 8LlJK -> 8LUK
+    msg = re.sub(r"(?<![A-Za-z])LCK(?![A-Za-z])", "LUK", msg)  # 8LCK / +8 LCK earring -> LUK (운)
+    msg = re.sub(r"(?<=\d)CR[lI|1]T(?![a-z])", "CRIT", msg)  # 6CRlT6ATK -> 6CRIT6ATK
+    msg = re.sub(r"(?<![A-Za-z])CRIT[I|l1]{2,}(?![A-Za-z0-9])", "CRIT", msg)  # +2 CRITIII -> +2 CRIT
+    msg = re.sub(r"\+\s?[Il|](?=\s?(?i:w?att|w?atk|str|dex|int|luk)(?![A-Za-z]))", "+1", msg)  # +IWATT -> +1WATT
     msg = re.sub(r"(?<=\d)\s?cr[il1|]t\.?\s?(?:dmg|damage)(?![A-Za-z])", "CD", msg, flags=re.I)  # 3CRlT DMG -> 3CD (크뎀)
     msg = re.sub(r"(?<![A-Za-z0-9])(\d)1uk(?![A-Za-z])", r"\1luk", msg, flags=re.I)  # 51uk -> 5luk
     msg = re.sub(r"(?<![A-Za-z])[Il][Vv][Il]\s?(?=\d)", "lvl ", msg)  # IVI 50 -> lvl 50

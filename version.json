@@ -1,6 +1,6 @@
 {
-  "version": 70,
-  "note": "[700k] 대괄호 금액이 '알았어'로 번역되던 문제·64.99k 십 단위 누락 수정, 101M.Atk→101마, [공지]가 채팅에 붙던 문제 수정, 수묵화·올스탯·귀운·파운더 상자 등 사전 30개 추가",
+  "version": 71,
+  "note": "8LCK·+3WATT·6CRlT·CRITIII 능력치 인식, MAFK→마력, cc/0→현재 최고가, 16ma→16마, 하얀 포션·마노·스텀피·금비 변형 등 사전 22개 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
