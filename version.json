@@ -1,6 +1,6 @@
 {
-  "version": 73,
-  "note": "125ea→개당 125메소, 'for 6만' 어색한 번역·+3def 미번역 수정, 다운로드 진행 표시(MB/s→'불량') 찌꺼기 거르기, 장마 주문서·석궁 공격력·엔젤 헤일로(Ha10)·캣츠아이 등 사전 29개 추가",
+  "version": 74,
+  "note": "캐릭터 정보창(직업·HP·MP·EXP)이 채팅창에 겹쳐 '마법사(얼음,번개) HP ...'로 번역되던 찌꺼기 거르기",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

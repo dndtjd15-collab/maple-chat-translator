@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 73  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 74  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -538,6 +538,25 @@ _NAMETAG_STOP = {"congrats", "grats", "thanks", "nice", "how", "what", "the", "y
                  "ngl", "tbh", "lmao", "lol", "omg", "thx", "plz", "pls", "gg", "wait", "here", "where", "lets", "come",
                  "want", "need", "have", "just", "this", "that", "with", "yes", "yeah", "nope", "okay", "sorry", "thank"}
 NAMETAG_WORDS = set()  # 내 이름표 옆에 같이 읽히는 단어 (펫 이름·길드 이름 등) - 실행 중에 배움
+
+
+_STATUS_SIG_RE = re.compile(r"\((?:Ice|Fire)\s*[,.]?\s*(?:Lightning|Poison)|\b(?:HP|MP)\s*[\[\(]?\s*\w{1,5}\s*/\s*\S{2,6}", re.I)
+_STATUS_JOB_RE = re.compile(r"\b(?:Wizard|Magician|Mage|Cleric|Priest|Warrior|Fighter|Page|Spearman|Archer|Hunter|Crossbowman|"
+                            r"Thief|Assassin|Bandit|Beginner|Pirate)\b|\((?:Ice|Fire)[^)]*\)?|\b(?:HP|MP|EXP|LV)\b\.?", re.I)
+
+
+def status_bar_like(name, msg, my_name):
+    """캐릭터에 마우스를 올렸을 때 뜨는 정보창('Wizard (Ice,Lightning) HP 619/1112 MP 1042/2061 EXP')이
+    채팅창 영역에 겹쳐 읽힌 줄인지. 'MP 1171 noel', '20611 41', 'rei!l LV. SungWoong' 같은 조각도 포함.
+    HP·MP 수치나 직업(속성) 표시가 있고, 그걸 빼면 대화 단어가 1개 이하일 때만 True."""
+    if not (_STATUS_SIG_RE.search(msg or "") or _STATUS_SIG_RE.search(name or "")):
+        return False
+    rest = _STATUS_JOB_RE.sub(" ", msg or "")
+    me = (my_name or "").lower()
+    words = [w for w in rest.split() if not re.search(r"[\d/\[\]()]", w)
+             and not (me and me in w.lower())]
+    words = [w for w in words if len(re.findall(r"[A-Za-z]", w)) >= 2]
+    return len(words) <= 1
 
 
 def nametag_like(msg, my_name):
@@ -3046,6 +3065,9 @@ def run_app():
                     cur_key, name, msg, ch, kind = c["keys"], c["name"], c["msg"], c["ch"], c["kind"]
                     dlog("LINE", kind, repr(name), ch, msg)
                     letters = len(re.findall(r"[A-Za-z가-힣0-9?!]", msg))
+                    if not HANGUL_RE.search(msg) and not trade_of(msg) and status_bar_like(name, msg, cfg.get("my_name")):
+                        dlog("DROP-STATUS", msg)
+                        continue  # 캐릭터 정보창(직업·HP·MP·EXP)이 채팅창에 겹쳐 읽힌 줄 -> '마법사(얼음,번개) HP ...' 로 번역되던 찌꺼기
                     if not name and not re.search(r"[A-Za-z가-힣]", msg):
                         dlog("DROP-JUNK", msg)
                         continue  # 닉네임 없이 숫자·기호만 있는 줄 ('20 461', '452') = 다른 UI 숫자를 읽은 찌꺼기
