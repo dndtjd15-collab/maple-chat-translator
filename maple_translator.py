@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 72  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 73  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -199,8 +199,14 @@ class Glossary:
             value = num * (1_000 if unit.startswith("k") else 1_000_000)
             return hold(format_meso(value))
 
+        # 'SELL EARRING INT FOR 60k' -> 'for' 가 '6만에 대한' 으로 어색하게 번역되던 문제: 금액 앞 for 는 뺌
+        text = re.sub(r"(?<![A-Za-z])for\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",
                       money, text, flags=re.IGNORECASE)
+
+        # 'Orange potion 125ea' -> 개당 125메소 (단위 없는 금액 + ea 가 '125개' 수량으로 번역되던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9+.,])(\d{2,3})\s?(?:ea|each)(?![A-Za-z0-9])",
+                      lambda m: hold("개당 " + format_meso(int(m.group(1)))), text, flags=re.IGNORECASE)
 
         # 2.5) 한국식 표기로: ch25 / cc18 -> 25채널, x2 / 2x -> 2개, 5str -> 5힘, att69 -> 공69, 3cd -> 크뎀3
         text = re.sub(r"(?<![A-Za-z])(?:CH|Ch|ch)[Il|]\s?(\d)(?![0-9A-Za-z])", lambda m: hold("1" + m.group(1) + "채널"), text)  # OCR: CH17 -> 'CHI 7'
@@ -215,10 +221,11 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
-                 "matk": "마", "matt": "마", "watt": "공", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공"}
+                 "matk": "마", "matt": "마", "watt": "공", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공",
+                 "def": "방어력", "wdef": "물방", "mdef": "마방"}
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?M\.\s?(atk|att)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text, flags=re.I)  # 101M.Atk -> 101마
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa|ma)(?![A-Za-z])",
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa|ma|wdef|mdef|def)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
                       lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
@@ -3042,6 +3049,9 @@ def run_app():
                     if not name and not re.search(r"[A-Za-z가-힣]", msg):
                         dlog("DROP-JUNK", msg)
                         continue  # 닉네임 없이 숫자·기호만 있는 줄 ('20 461', '452') = 다른 UI 숫자를 읽은 찌꺼기
+                    if not name and re.search(r"\d+(?:\.\d+)?\s?/\s?\d+(?:\.\d+)?\s?[KMG]B\b|\b[KMG]B/s\b", msg):
+                        dlog("DROP-JUNK", msg)
+                        continue  # 게임 밖 다운로드 진행 표시 ('1.7/6.2 GB 48.2 MB/s') -> 'MB'가 '불량'으로 번역되던 찌꺼기
                     if not name and not HANGUL_RE.search(msg) and not trade_of(msg) and text_quality(msg) < 0.55:
                         dlog("DROP-JUNK", msg)
                         continue  # 닉네임도 없고 글자가 엉망인 줄 = OCR 찌꺼기

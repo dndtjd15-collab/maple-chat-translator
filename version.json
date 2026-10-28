@@ -1,6 +1,6 @@
 {
-  "version": 72,
-  "note": "파란/빨간 포션·퓨어 워터 통일, JPQ·R > 2 거래표시, 607.→60%, 0th→other, Magic Def→마방, k가 악센트 글자 옆에서 '알았어'로 번역되던 문제, 사전 50개 추가",
+  "version": 73,
+  "note": "125ea→개당 125메소, 'for 6만' 어색한 번역·+3def 미번역 수정, 다운로드 진행 표시(MB/s→'불량') 찌꺼기 거르기, 장마 주문서·석궁 공격력·엔젤 헤일로(Ha10)·캣츠아이 등 사전 29개 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
