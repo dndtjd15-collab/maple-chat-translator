@@ -1,6 +1,6 @@
 {
-  "version": 71,
-  "note": "8LCK·+3WATT·6CRlT·CRITIII 능력치 인식, MAFK→마력, cc/0→현재 최고가, 16ma→16마, 하얀 포션·마노·스텀피·금비 변형 등 사전 22개 추가",
+  "version": 72,
+  "note": "파란/빨간 포션·퓨어 워터 통일, JPQ·R > 2 거래표시, 607.→60%, 0th→other, Magic Def→마방, k가 악센트 글자 옆에서 '알았어'로 번역되던 문제, 사전 50개 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
