@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 79  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 80  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -203,6 +203,14 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z])for\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",
                       money, text, flags=re.IGNORECASE)
+
+        # '30,000mesos' / '30000 mesos' -> 3만 (쉼표 금액이 영어로 남던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3}(?:,\d{3})+|\d{4,9})\s?mesos?(?![A-Za-z])",
+                      lambda m: hold(format_meso(int(m.group(1).replace(",", "")))), text, flags=re.IGNORECASE)
+        # 'T0bi co 1.45m' -> 현재 최고가 (금액 바로 앞 co/c0 = c/o, '공동'으로 번역되던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9/])c[o0](?=\s*ZZ\d+QQ)", lambda m: hold("현재 최고가"), text, flags=re.IGNORECASE)
+        # 'B> 6 w/a WG' -> 6공 목장갑 (w/ 가 with 로 풀려 '목장갑 포함'이 되던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,2})\s?w/a(?![A-Za-z/])", lambda m: hold(m.group(1) + "공"), text, flags=re.IGNORECASE)
 
         # 'Orange potion 125ea' -> 개당 125메소 (단위 없는 금액 + ea 가 '125개' 수량으로 번역되던 문제)
         text = re.sub(r"(?<![A-Za-z0-9+.,])(\d{2,3})\s?(?:ea|each)(?![A-Za-z0-9])",

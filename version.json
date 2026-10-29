@@ -1,6 +1,6 @@
 {
-  "version": 79,
-  "note": "경험치 측정 바에 💰 메소 측정 추가: [메소] 버튼으로 인벤토리 메소 숫자 지정 → 주운 메소·시간당 메소 (물약 구매·거래는 제외)",
+  "version": 80,
+  "note": "번역 점검: 'co 145만'=현재 최고가, '6 w/a'=6공, '30,000mesos'=3만, Icicle=고드름, 60GFA=장공 60%, scoll=주문서",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
