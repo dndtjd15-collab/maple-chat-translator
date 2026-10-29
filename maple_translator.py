@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 76  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 77  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -851,25 +851,25 @@ class ScreenOCR:
             return " ".join((getattr(ln, "text", "") or "") for ln in (getattr(res, "lines", None) or []))
 
         tries = []
-        txt = rec(img)
+        # 퍼센트를 감싼 연두색 괄호 '[ ]' 가 숫자에 붙어서 '[54' -> 'ts4' 로 읽힘 -> 괄호(연두·노랑)를 지운 그림을 먼저 읽음
+        nb = self._orig.copy()   # 키우기 전 원본에서 지워야 번진 색이 안 남음
+        px = nb.load()
+        for yy in range(nb.height):
+            for xx in range(nb.width):
+                r_, g_, b_ = px[xx, yy]
+                if g_ > 110 and g_ - b_ > 70 and r_ - b_ > 30:
+                    px[xx, yy] = px[xx - 1, yy] if xx > 0 else (0, 0, 0)   # 왼쪽 배경색으로
+        k = max(3, int(self.upscale or 3))
+        nb = nb.resize((nb.width * k, nb.height * k), Image.LANCZOS)
+        txt = rec(nb).replace("%", "%]")
         tries.append(txt)
         rd = parse_exp(txt)
         if not rd or rd["pct"] is None:
-            # 퍼센트를 감싼 연두색 괄호 '[ ]' 가 숫자에 붙어서 '[8' -> 'cs' 로 읽힘 -> 괄호(연두·노랑)만 지우고 다시
-            nb = self._orig.copy()   # 키우기 전 원본에서 지워야 번진 색이 안 남음
-            px = nb.load()
-            for yy in range(nb.height):
-                for xx in range(nb.width):
-                    r_, g_, b_ = px[xx, yy]
-                    if g_ > 110 and g_ - b_ > 70 and r_ - b_ > 30:
-                        px[xx, yy] = px[xx - 1, yy] if xx > 0 else (0, 0, 0)   # 왼쪽 배경색으로
-            k = max(3, int(self.upscale or 3))
-            nb = nb.resize((nb.width * k, nb.height * k), Image.LANCZOS)
-            t0 = rec(nb).replace("%", "%]")
-            tries.append(t0)
-            r0 = parse_exp(t0)
-            if r0 and r0.get("pct") is not None:
-                rd, txt = r0, t0
+            txt = rec(img)
+            tries.append(txt)
+            r1 = parse_exp(txt)
+            if r1 and (not rd or r1.get("pct") is not None):
+                rd = r1
         if not rd or rd["pct"] is None:
             g = img.convert("L")
             for th in (170, 120):
@@ -1656,6 +1656,8 @@ class ExpTracker:
         cands = [p_read]
         if 10 <= p_read < 20:
             cands.append(p_read - 10)   # '[6.46%' 의 '[' 를 1로 읽어 '16.46' 이 된 경우
+        if self.last is not None and p_read < 10 <= self.last["pct"] < 100:
+            cands.append(p_read + int(self.last["pct"]) // 10 * 10)   # '[54.00%' 의 '[5' 가 글자로 깨져 '4.00' 이 된 경우
         if self.need and c is not None and 0 <= c <= self.need and c >= 1000:
             cands.append(c * 100 / self.need)
         if self.last is None:
@@ -1717,6 +1719,11 @@ class ExpTracker:
             # 같은 값이 계속 읽힘 = 진짜 값. 그 사이 못 읽은 동안 오른 만큼(또는 잘못 높게 센 만큼)을 반영
             # (마우스가 숫자를 가렸다가 비켜났을 때, 죽어서 경험치가 깎였을 때 등)
             delta = p_read - lp
+            if abs(delta) > 2.0:
+                # 몇 초 사이에 2% 넘게 변할 일은 없음 = 앞자리를 계속 잘못 읽은 것 -> 기준만 바꾸고 경험치는 안 셈
+                self.last = {"pct": p_read, "need": self.need}
+                self.odd = []
+                return
             self.gained_pct = max(0.0, self.gained_pct + delta)
             if self.need:
                 self.gained = max(0, self.gained + int(round(self.need * delta / 100)))
