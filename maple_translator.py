@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 75  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 76  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -854,6 +854,22 @@ class ScreenOCR:
         txt = rec(img)
         tries.append(txt)
         rd = parse_exp(txt)
+        if not rd or rd["pct"] is None:
+            # 퍼센트를 감싼 연두색 괄호 '[ ]' 가 숫자에 붙어서 '[8' -> 'cs' 로 읽힘 -> 괄호(연두·노랑)만 지우고 다시
+            nb = self._orig.copy()   # 키우기 전 원본에서 지워야 번진 색이 안 남음
+            px = nb.load()
+            for yy in range(nb.height):
+                for xx in range(nb.width):
+                    r_, g_, b_ = px[xx, yy]
+                    if g_ > 110 and g_ - b_ > 70 and r_ - b_ > 30:
+                        px[xx, yy] = px[xx - 1, yy] if xx > 0 else (0, 0, 0)   # 왼쪽 배경색으로
+            k = max(3, int(self.upscale or 3))
+            nb = nb.resize((nb.width * k, nb.height * k), Image.LANCZOS)
+            t0 = rec(nb).replace("%", "%]")
+            tries.append(t0)
+            r0 = parse_exp(t0)
+            if r0 and r0.get("pct") is not None:
+                rd, txt = r0, t0
         if not rd or rd["pct"] is None:
             g = img.convert("L")
             for th in (170, 120):
