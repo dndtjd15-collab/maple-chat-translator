@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 74  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 75  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -838,7 +838,7 @@ class ScreenOCR:
         """경험치 영역을 읽어서 (글자, parse_exp 결과). 그냥 읽기 -> 안 되면 흰 글자만 남겨서 다시."""
         import asyncio
         import winocr
-        from PIL import ImageOps
+        from PIL import Image, ImageOps
         img = self.grab(region)
 
         def rec(im):
@@ -865,6 +865,16 @@ class ScreenOCR:
                     rd, txt = r2, t2
                 if rd and rd["pct"] is not None:
                     break
+        if not rd or rd["pct"] is None:
+            # 글자가 작아서 '[8' 이 'cs' 로 붙어 읽히는 경우 -> 원본을 더 크게 키워서 한 번 더
+            big = self._orig.resize((self._orig.width * 6, self._orig.height * 6), Image.LANCZOS)
+            t3 = rec(ImageOps.expand(big, border=16, fill=big.getpixel((0, 0))))
+            tries.append(t3)
+            r3 = parse_exp(t3)
+            if r3 and r3.get("pct") is not None:
+                rd, txt = r3, t3
+            elif r3 and not rd:
+                rd = r3
         return " / ".join(tries), rd
 
     def _ocr(self, img, lang):
@@ -1412,6 +1422,9 @@ EXP_TABLE = [0] + [15, 34, 57, 92, 135, 372, 560, 840, 1242, 1716, 2360, 3216, 4
 _EXP_PCT_RE = re.compile(r"(\d{1,4})[.,](\d{2})\s*[%)\]]")
 _EXP_RATIO_RE = re.compile(r"(\d[\d,.]*)\s*/\s*(\d[\d,.]*)")
 _EXP_NUM_RE = re.compile(r"\d{1,3}(?:[,.]\d{3})+|\d{3,}")
+# 정수 부분이 글자로 깨진 퍼센트: 'cs.47%]', 'ts.s2%)', '[.50%' 등
+_EXP_GARBLED_RE = re.compile(r"(?:^|[\s\[(])([A-Za-z\[(|]{1,3})\s*[.,]\s*([\dSsOoIl|]{2})\s*[%)\]]")
+_EXP_DEC_FIX = str.maketrans({"S": "5", "s": "5", "O": "0", "o": "0", "I": "1", "l": "1", "|": "1"})
 
 
 def _exp_int(s):
@@ -1445,7 +1458,18 @@ def parse_exp(text):
             pct = v
             break
     if pct is None:
-        return None
+        # '[8.47%]' 의 '[8' 을 'cs'·'ts' 같은 글자로 잘못 읽은 경우: 정수 부분은 버리고 소수 둘째 자리만 씀
+        # (경험치 측정은 직전 값에서 이어지는지로 정수 부분을 맞춤 -> ExpTracker.feed)
+        g = _EXP_GARBLED_RE.search(t)
+        if not g:
+            return None
+        dec = _exp_int(g.group(2).translate(_EXP_DEC_FIX))
+        if dec is None or dec > 99:
+            return None
+        before = t[:g.start()]
+        nums = [_exp_int(x) for x in _EXP_NUM_RE.findall(before)]
+        nums = [n for n in nums if n is not None]
+        return {"cur": nums[-1] if nums else None, "need": None, "pct": None, "dec": dec}
     before = t[:m.start()]
     cur = need = None
     r = _EXP_RATIO_RE.search(before)
@@ -1485,6 +1509,7 @@ class ExpTracker:
         self.fwd = None          # 크게 오른 값 확인 대기
         self.last_ok = None
         self.fails = 0
+        self.int_unknown = False   # 퍼센트 정수 부분을 모른 채(소수만 읽고) 시작했는지
 
     def start(self):
         if not self.running:
@@ -1551,6 +1576,35 @@ class ExpTracker:
             return True
         return False
 
+    def _from_dec(self, rd):
+        """퍼센트 정수 부분을 못 읽고 소수(두 자리)만 읽었을 때 -> 직전 값에서 이어지는 퍼센트로 복원.
+        직전 값이 없으면 레벨(필요 경험치)을 알 때 숫자로 정수 부분을 추정."""
+        dec = rd["dec"] / 100
+        base = None
+        if self.last is not None:
+            lp = self.last["pct"]
+            # 소수만 읽은 값은 오독이 잦아서 조금씩 오른 경우(0~0.15%)만 믿음. 0.9x -> 0.0x 는 정수 부분 +1
+            for cand in (int(lp) + dec, int(lp) + 1 + dec):
+                if -0.03 <= cand - lp <= 0.15:
+                    base = cand
+                    break
+            if base is None:
+                return None
+            if base >= 100:   # 99.9x% -> 0.0x% = 레벨업
+                return {"cur": None, "need": None, "pct": base - 100, "levelup_dec": True, "from_dec": True}
+        else:
+            c = rd.get("cur")
+            if self.need and c:
+                guess = c * 100 / self.need
+                base = round(guess - dec) + dec
+                if abs(base - guess) > 1.5:
+                    return None
+            else:
+                # 레벨을 모르면 정수 부분 0으로 두고 시작 (오른 퍼센트는 정확함, 경험치 환산은 레벨을 알게 되면)
+                base = dec
+            return {"cur": None, "need": None, "pct": base, "int_guess": True, "from_dec": True}
+        return {"cur": None, "need": None, "pct": base, "from_dec": True}
+
     def _cur(self, rd):
         """퍼센트와 맞는 현재 경험치 (숫자를 잘못 읽었으면 퍼센트로 계산)."""
         if not self.need:
@@ -1566,14 +1620,26 @@ class ExpTracker:
         직전 값에서 자연스럽게 이어지는 쪽을 씀 -> '75.01%'를 '8.01%'로 잘못 읽어도 숫자로 바로잡음."""
         if not self.running:
             return
+        if rd and rd.get("pct") is None and rd.get("dec") is not None:
+            rd = self._from_dec(rd)
         if not rd or rd.get("pct") is None:
             self.fails += 1
             return
         self.fails = 0
         self.last_ok = time.time()
+        if getattr(self, "int_unknown", False) and self.last is not None and not rd.get("int_guess") \
+                and not rd.get("from_dec") and "levelup_dec" not in rd:
+            # 정수 부분을 모른 채 시작했는데 이번엔 퍼센트를 제대로 읽음 -> 정수 부분만 맞춤 (경험치는 안 셈)
+            lp = self.last["pct"]
+            moved = int(rd["pct"]) + (lp - int(lp))
+            if -0.03 <= rd["pct"] - moved <= 1.0:
+                self.last["pct"] = moved
+                self.int_unknown = False
         self._learn_need(rd)
         p_read, c = rd["pct"], rd.get("cur")
         cands = [p_read]
+        if 10 <= p_read < 20:
+            cands.append(p_read - 10)   # '[6.46%' 의 '[' 를 1로 읽어 '16.46' 이 된 경우
         if self.need and c is not None and 0 <= c <= self.need and c >= 1000:
             cands.append(c * 100 / self.need)
         if self.last is None:
@@ -1584,6 +1650,7 @@ class ExpTracker:
             near = [x for x in self.odd if abs(x - v) <= 0.3]
             if len(near) >= 3:
                 self.last = {"pct": max(near), "need": self.need}
+                self.int_unknown = bool(rd.get("int_guess"))
                 self.odd = []
             return
         lp = self.last["pct"]
@@ -1608,7 +1675,7 @@ class ExpTracker:
             self.odd, self.lvl_wait = [], []
             return
         # 2) 레벨업: 직전이 높고(85%+) 지금이 아주 낮음(5% 미만) + 확인
-        if lp >= 85 and p_read < 5 and self._confirm_levelup(rd):
+        if lp >= 85 and p_read < 5 and (rd.get("levelup_dec") or self._confirm_levelup(rd)):
             self.gained_pct += (100 - lp) + p_read
             if self.need:
                 self.gained += int(round(self.need * (100 - lp) / 100))
@@ -2584,6 +2651,8 @@ def run_app():
                 return
         if exp_state["seg_map"] is None:
             exp_begin_segment()
+        if not exp.level and cfg.get("exp_level"):
+            exp.set_level(int(cfg["exp_level"]))
         exp.start()
         exp_state["last_log"] = time.time()
         exp_go.configure(text="■ 정지", bg="#c92a2a")
@@ -2641,6 +2710,9 @@ def run_app():
         exp_lbl.configure(text=txt)
 
     def exp_tick():
+        if exp.level and cfg.get("exp_level") != exp.level:
+            cfg["exp_level"] = exp.level
+            save_config(cfg)
         exp_update()
         if exp.running and time.time() - exp_state["last_log"] >= 60:
             exp_state["last_log"] = time.time()
@@ -2657,6 +2729,18 @@ def run_app():
         cfg["exp_show"] = on
         save_config(cfg)
 
+    def exp_ask_level():
+        from tkinter import simpledialog
+        v = simpledialog.askinteger("내 레벨", "지금 캐릭터 레벨을 입력하세요 (경험치 환산용)",
+                                    parent=root, minvalue=1, maxvalue=len(EXP_TABLE) - 1,
+                                    initialvalue=exp.level or cfg.get("exp_level") or 1)
+        if v:
+            exp.set_level(v)
+            cfg["exp_level"] = v
+            save_config(cfg)
+            exp_update()
+
+    ebtn("레벨", exp_ask_level)
     ebtn("영역", lambda: select_region("exp_region"))
     ebtn("리셋", exp_reset)
     exp_go = ebtn("▶ 측정", exp_toggle, "#2f9e44")
