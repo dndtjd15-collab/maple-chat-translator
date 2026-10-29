@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 77  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 78  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -459,6 +459,8 @@ _CH_FIX = str.maketrans({"O": "0", "o": "0", "Z": "2", "z": "2", "S": "5", "s": 
 # 문장 첫 단어라서 닉네임으로 착각하면 안 되는 말
 _NOT_NAMES = set("well sure yeah okay also then what maybe lmao haha thanks sorry nope true same wait damn guys "
                  "yes nice cool lets dude bruh look also just here there this that they wtb wts sell selling buying".split())
+_NOT_NAMES_0 = set("have has had need got get only left sold slot slots with for and the are was all buy pay give take "
+                   "ch cc fm lvl level att atk luk int str dex crit at".split())
 
 
 def parse_line(raw):
@@ -490,6 +492,11 @@ def parse_line(raw):
         m3 = re.match(r"^\s*[•·*]?\s*([A-Za-z0-9_]{4,13})\s*[.•·«»'`]{1,2}\s+(\S.*)$", line)
         if m3 and _clean_name(m3.group(1)) and m3.group(1).lower() not in _NOT_NAMES:
             return _clean_name(m3.group(1)), m3.group(2).strip(), None
+        # 고확 아이콘을 OCR이 '0'/'O'로 읽어 콜론이 없는 줄: 'minikoko 0 >Cromi +3 ...' (닉네임이 번역되던 문제)
+        m4 = re.match(r"^\s*([A-Za-z][A-Za-z0-9_]{2,12})\s+[0O]\s+(\S.*)$", line)
+        if (m4 and _clean_name(m4.group(1)) and m4.group(1).lower() not in _NOT_NAMES
+                and m4.group(1).lower() not in _NOT_NAMES_0):
+            return _clean_name(m4.group(1)), m4.group(2).strip(), None
         m2 = re.match(r"^\s*([^:：;\s][^:：;]{0,30}?)\s*[:：;]\s*$", line)
         if m2 and _clean_name(m2.group(1)) and len(m2.group(1).split()) <= 2:
             return _clean_name(m2.group(1)), "", None  # 닉네임만 있고 대화는 다음 줄

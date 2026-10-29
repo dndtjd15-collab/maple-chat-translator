@@ -1,6 +1,6 @@
 {
-  "version": 77,
-  "note": "경험치 측정: 괄호 지운 그림을 먼저 읽기, '[54.00%'를 '4.00'으로 읽어도 앞자리 보정, 앞자리 오독으로 수십 % 튀는 값은 경험치로 안 셈",
+  "version": 78,
+  "note": "번역 점검: 고확 아이콘을 '0'으로 읽은 줄의 닉네임 분리(닉네임 번역 방지), B:/sell me=[삽니다], cwo·Dirk-and-Wash·lnk wash 등 OCR 변형, floor offer·send me some offers 사전 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

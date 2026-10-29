@@ -1446,7 +1446,20 @@
     "fk it": "에라 모르겠다",
     "my cc": "제 채널",
     "handoff": "자리 양도",
-    "hand off": "자리 양도"
+    "hand off": "자리 양도",
+    "dirk-and-wash": "수묵화",
+    "dirk and wash": "수묵화",
+    "lnk wash": "수묵화",
+    "lnk-and-wash": "수묵화",
+    "olymous": "올림푸스",
+    "cwo": "현재 최고가",
+    "pmo me": "귓 주세요",
+    "floor offer": "최소 제시가",
+    "send me some offers": "가격 제안 귓 주세요",
+    "send me some offer": "가격 제안 귓 주세요",
+    "send me some offe": "가격 제안 귓 주세요",
+    "someone sell me": "[삽니다]",
+    "sell me": "[삽니다]"
   },
   "terms_case": {
     "MA": "마력",
@@ -1475,7 +1488,9 @@
     "SELL": "[팝니다]",
     "BUY": "[삽니다]",
     "WTS": "[팝니다]",
-    "Sell": "[팝니다]"
+    "Sell": "[팝니다]",
+    "B:": "[삽니다]",
+    "B :": "[삽니다]"
   },
   "names": {
     "_설명": "직업·별명처럼 번역기가 엉뚱하게 바꾸는 단어. 소문자로 적고 한국어 뜻을 쓰세요.",
