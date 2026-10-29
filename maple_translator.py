@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 78  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 79  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -841,6 +841,35 @@ class ScreenOCR:
                              Image.LANCZOS)
         return img
 
+    def read_number(self, region):
+        """메소 칸 같은 숫자 영역을 읽어서 (글자, 숫자). 그냥 읽기 -> 안 되면 흑백으로 다시."""
+        import asyncio
+        import winocr
+        from PIL import ImageOps
+        img = self.grab(region)
+
+        def rec(im):
+            lang = "ko" if getattr(self, "_no_en", False) else "en"
+            try:
+                res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(im, lang)))
+            except AssertionError:
+                self._no_en = True
+                res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(im, "ko")))
+            return " ".join((getattr(ln, "text", "") or "") for ln in (getattr(res, "lines", None) or []))
+
+        txt = rec(img)
+        v = parse_meso(txt)
+        if v is None:
+            g = img.convert("L")
+            for th in (140, 100):
+                bw = g.point(lambda x, th=th: 255 if x >= th else 0).convert("RGB")
+                t2 = rec(ImageOps.expand(bw, border=12, fill="white"))
+                v = parse_meso(t2)
+                txt += " / " + t2
+                if v is not None:
+                    break
+        return txt, v
+
     def read_exp(self, region):
         """경험치 영역을 읽어서 (글자, parse_exp 결과). 그냥 읽기 -> 안 되면 흰 글자만 남겨서 다시."""
         import asyncio
@@ -1506,6 +1535,66 @@ def parse_exp(text):
         if nums:
             cur = nums[-1]
     return {"cur": cur, "need": need, "pct": pct}
+
+
+def parse_meso(text):
+    """인벤토리 메소 칸 글자에서 메소 숫자를 뽑음 (예: '630,918'). 못 읽으면 None."""
+    if not text:
+        return None
+    t = text
+    for _ in range(3):
+        t2 = re.sub(r"(?<=[\d,.])[Oo](?=[\d,.]|$)|(?<=^)[Oo](?=[\d,.])", "0", t)
+        t2 = re.sub(r"(?<=[\d,.])[lI|](?=[\d,.]|$)", "1", t2)
+        t2 = re.sub(r"(?<=[\d,.])[Ss](?=[\d,.]|$)", "5", t2)
+        if t2 == t:
+            break
+        t = t2
+    nums = re.findall(r"\d{1,3}(?:[,.]\s?\d{3})+|\d+", t)
+    vals = [int(re.sub(r"[^\d]", "", n)) for n in nums]
+    vals = [v for v in vals if v < 10_000_000_000]
+    return max(vals) if vals else None
+
+
+class MesoTracker:
+    """인벤토리 메소 숫자를 읽어서 사냥 중 주운 메소를 셈.
+    줄어들면(물약 구매 등) 기준만 바꾸고, 한 번에 크게 늘면(거래·판매) 사냥 메소로 안 셈.
+    OCR 오독을 막으려고 새 값은 2번 연속 같게 읽혀야 반영."""
+    MAX_STEP = 30000   # 몇 초 사이에 이만큼 넘게 늘면 사냥이 아니라 거래로 봄
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.base = None
+        self.gained = 0
+        self.cands = []
+        self.pending = None
+        self.fails = 0
+
+    def feed(self, v):
+        if v is None:
+            self.fails += 1
+            return
+        self.fails = 0
+        if self.base is None:
+            self.cands = (self.cands + [v])[-3:]
+            if len(self.cands) == 3 and len(set(self.cands)) == 1:
+                self.base = v
+            return
+        if v == self.base:
+            self.pending = None
+            return
+        if self.pending != v:
+            self.pending = v
+            return
+        self.pending = None
+        d = v - self.base
+        if 0 < d <= self.MAX_STEP:
+            self.gained += d
+        self.base = v
+
+    def rate(self, seconds):
+        return self.gained / seconds * 3600 if seconds >= 20 else 0
 
 
 class ExpTracker:
@@ -2608,6 +2697,7 @@ def run_app():
     # --- 경험치 측정 바 (타이머 + 먹은 경험치 + 시간당 경험치, 사냥터별 기록) -------------
     from tkinter import ttk as _ttk
     exp = ExpTracker()
+    meso = MesoTracker()
     exp_state = {"thread": None, "raw": "", "last_log": 0.0, "seg_map": None, "seg_party": None,
                  "ocr": None, "shown": False}
     exp_bar = tk.Frame(root, bg="#1b2430")
@@ -2635,13 +2725,16 @@ def run_app():
                 w = csv.writer(f)
                 if new:
                     w.writerow(["기록시각", "종류", "사냥터", "파티인원", "경과초", "누적경험치", "누적퍼센트",
-                                "시간당경험치", "시간당퍼센트", "레벨업", "현재경험치", "필요경험치"])
+                                "시간당경험치", "시간당퍼센트", "레벨업", "현재경험치", "필요경험치",
+                                "누적메소", "시간당메소"])
                 last = exp.last or {}
                 w.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), kind, exp_state["seg_map"] or exp_map.get().strip(),
                             exp_state["seg_party"] or exp_party.get(), int(t), exp.gained_exp(), round(exp.gained_pct, 2),
                             int(exp.rate()), round(exp.pct_rate(), 2), exp.levelups,
                             (int(exp.need * last["pct"] / 100) if exp.need and last.get("pct") is not None else ""),
-                            exp.need or ""])
+                            exp.need or "",
+                            (meso.gained if cfg.get("meso_region") else ""),
+                            (int(meso.rate(t)) if cfg.get("meso_region") else "")])
         except Exception as e:  # noqa: BLE001
             dlog("EXP-LOG-ERR", repr(e))
 
@@ -2653,6 +2746,10 @@ def run_app():
                 exp_state["raw"] = raw
                 dlog("EXP", raw, rd)
                 exp.feed(rd)
+                if cfg.get("meso_region"):
+                    mraw, mv = exp_state["ocr"].read_number(cfg["meso_region"])
+                    dlog("MESO", mraw, mv)
+                    meso.feed(mv)
             except Exception as e:  # noqa: BLE001
                 dlog("EXP-ERR", repr(e))
                 exp.feed(None)
@@ -2695,6 +2792,7 @@ def run_app():
         exp.pause()
         exp_write("종료")
         exp.reset()
+        meso.reset()
         exp_state["seg_map"] = None
         exp_go.configure(text="▶ 측정", bg="#2f9e44")
         if was:
@@ -2731,6 +2829,10 @@ def run_app():
         else:
             txt = (f"⏱ {fmt_hms(t)}   " + (f"Lv{exp.level}  " if exp.level else "") + f"+{exp.gained_exp():,} ({exp.gained_pct:.2f}%)   "
                    f"시간당 {exp.rate():,.0f} ({exp.pct_rate():.1f}%)   레벨업까지 {fmt_eta(exp.eta_sec())}")
+            if cfg.get("meso_region"):
+                txt += f"\n💰 메소 +{meso.gained:,}   시간당 {meso.rate(t):,.0f}"
+                if exp.running and meso.fails >= 3:
+                    txt += "   ⚠ 메소 숫자를 못 읽어요 (인벤토리를 열어 두고 [메소]로 다시 지정)"
             if exp.levelups:
                 txt += f"   🎉 레벨업 {exp.levelups}번"
             if exp.running and exp.fails >= 3:
@@ -2770,6 +2872,7 @@ def run_app():
             save_config(cfg)
             exp_update()
 
+    ebtn("메소", lambda: select_region("meso_region"))
     ebtn("레벨", exp_ask_level)
     ebtn("영역", lambda: select_region("exp_region"))
     ebtn("리셋", exp_reset)
@@ -3054,7 +3157,8 @@ def run_app():
 
     # --- 영역 선택 ---------------------------------------------------------
     def select_region(target="region"):
-        is_exp = target == "exp_region"
+        is_exp = target in ("exp_region", "meso_region")
+        is_meso = target == "meso_region"
         was_running = state["running"]
         if not is_exp:
             stop()
@@ -3067,7 +3171,8 @@ def run_app():
         canvas.pack(fill="both", expand=True)
         canvas.create_text(sel.winfo_screenwidth() // 2, 60, fill="white",
                            font=("Malgun Gothic", 18, "bold"),
-                           text=("경험치 숫자(예: 12,345 [12.34%])가 있는 부분만 드래그하세요  (취소: ESC)" if is_exp
+                           text=("인벤토리 아래 메소 숫자(예: 630,918)만 드래그하세요 — 인벤토리를 열어 둔 채로  (취소: ESC)" if is_meso
+                                 else "경험치 숫자(예: 12,345 [12.34%])가 있는 부분만 드래그하세요  (취소: ESC)" if is_exp
                                  else "채팅 글자가 있는 부분만 드래그하세요  (취소: ESC)"))
         pos = {}
 
@@ -3091,6 +3196,11 @@ def run_app():
                 return
             cfg[target] = [left, top, w, h]
             save_config(cfg)
+            if is_meso:
+                meso.reset()
+                info(f"메소 영역 저장 완료 ({w}x{h}). 경험치 측정과 같이 메소도 세요 (인벤토리는 열어 두세요).")
+                exp_show(True)
+                return
             if is_exp:
                 info(f"경험치 영역 저장 완료 ({w}x{h}). [▶ 측정] 또는 F7로 시작하세요.")
                 exp_show(True)
