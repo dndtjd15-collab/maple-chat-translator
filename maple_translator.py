@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 80  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 81  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -157,6 +157,13 @@ class Glossary:
             return f" ZZ{len(slots) - 1}QQ "
 
         text = re.sub(r"\s*[—–]\s*", "-", text)  # 긴 대시 통일 (Ink—and—Wash)
+        # 링크(discord.gg/abc)는 그대로 보존 ('디스코드.gg' 로 깨지던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9])(?:https?://)?(?:discord\.gg|discord\.com|[A-Za-z0-9-]+\.(?:com|gg|net|org|io))/[^\s]+",
+                      lambda m: hold(m.group(0)), text, flags=re.I)
+        # 같은 글자 4번 이상 반복은 미리 정리 (prnoooooo -> prno 가 사전에 걸리도록)
+        text = re.sub(r"([A-Za-z])\1{3,}", r"\1", text)
+        # OCR: '1ea' 가 'lea' 로 읽힘 -> 'Icicle lea 430k' = 개당 (레아로 번역되던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9])[lI1]ea(?=\s*\d)", "ea", text)
         # 1) 대괄호 아이템 링크: 한글은 그대로, 영어 부분만 번역
         #    [에메랄드 귀고리] -> 그대로 / [Emerald Earrings] -> [에메랄드 귀고리]
         #    [장갑 Attack 주문서] -> 한글 유지 + Attack 만 번역
@@ -230,10 +237,10 @@ class Glossary:
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
                  "matk": "마", "matt": "마", "watt": "공", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공",
-                 "def": "방어력", "wdef": "물방", "mdef": "마방"}
+                 "def": "방어력", "wdef": "물방", "mdef": "마방", "ctt": "크리"}
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?M\.\s?(atk|att)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text, flags=re.I)  # 101M.Atk -> 101마
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|matk|matt|atk|att|acc|crit|cdmg|cd|cr|wa|ma|wdef|mdef|def)(?![A-Za-z])",
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|matk|matt|atk|att|acc|crit|ctt|cdmg|cd|cr|wa|ma|wdef|mdef|def)(?![A-Za-z])",
                       lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
                       lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
@@ -2346,7 +2353,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
 - OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측해서 자연스럽게 번역해. (추정) 같은 표시나 "~의 오타로 보여서" 같은 설명은 절대 붙이지 말고 번역만 써. 도저히 알 수 없는 찌꺼기면 "번역 불가"라고만 써.
 - 일상 대화(잡담·농담·드립·감정 표현)는 메이플 하는 한국 친구가 단톡방에서 말하듯 자연스럽게 의역해:
   · 말투 세기를 그대로 살려: 장난이면 장난스럽게(ㅋㅋ, ㅎㅎ), 화내면 세게, 비꼬면 비꼬게, 정중하면 존댓말. 기본은 반말 게이머 말투.
-  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"/"the goat"/"GOAT"=개쩐다/최고, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ.
+  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"/"the goat"/"GOAT"=개쩐다/최고, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ, "yo"=ㅎㅇ/야, "nth less"=그 이하로는 안 팜, "fielding offers"=가격 제안 받는 중, "quitting sale"=접어서 정리 판매, "i hate scrolling"=작하기 싫어.
   · 게이머 표현: "repot"/"repotting"=물약 사러 감, "scalper(s)"=되팔이, "bot check"=매크로 검사, "W me"/"whisp me"=귓 주세요, "inv me"=초대해줘, "pass (me) lead"=파티장 넘겨줘, "clicker"(파퀘)=클릭 담당, "famed you"=인기도 올려줬어, "baddie"=존예/예쁜 언니, "drip"(옷·외모 얘기일 때)=간지/패션, "who up"=누구 있음?, "anyone got X"=X 있는 사람?, "mega"/"smega"=확성기, "last smega"=마지막 확성기, "min"(스탯 뒤)=이상, "x left"=x개 남음, "for sale"=팝니다, "first come"/"fcfs"=선착순.
   · 주문서·강화 얘기: "60s"/"10s"/"30s"(주문서 얘기일 때)=60%/10%/30% 주문서, "bricked"/"boomed"=작 다 실패해서 템 망함(터짐), "skem"/"scam"=사기, "s/b"=시작가, "buy now"(파는 사람 문구)=지금 바로 사세요, "take this off my hands"/"take dis off my handz"=떨이로 넘겨요(빨리 처분), "poached"=자리 뺏김, "we're full"/"been full"=파티 꽉 찼어, "wsp"/"whisp"=귓 주세요.
   · 사람 이름·지명·스포츠 팀(Heat 등)·게임 밖 고유명사는 그대로 두고 나머지만 번역.
