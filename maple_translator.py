@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 81  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 82  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -206,6 +206,8 @@ class Glossary:
             value = num * (1_000 if unit.startswith("k") else 1_000_000)
             return hold(format_meso(value))
 
+        # '1.5a/w' -> '1.5 a/w' (숫자에 붙은 a/w, c/o 가 영어로 남던 문제, 숫자는 그대로)
+        text = re.sub(r"(\d)(?=(?:a/w|c/[o0])(?![A-Za-z]))", r"\1 ", text, flags=re.IGNORECASE)
         # 'SELL EARRING INT FOR 60k' -> 'for' 가 '6만에 대한' 으로 어색하게 번역되던 문제: 금액 앞 for 는 뺌
         text = re.sub(r"(?<![A-Za-z])for\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",

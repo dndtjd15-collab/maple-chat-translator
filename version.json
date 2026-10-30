@@ -1,6 +1,6 @@
 {
-  "version": 81,
-  "note": "번역 점검: Cat Soul=캣 소울, Evil Skull=이블 스컬, lea 430k=개당, prnoooo/PMOO=가격 제시, Earing LUK=귀운, Thought Bubble=말풍선, lol=ㅋㅋ, 디스코드 링크 보존",
+  "version": 82,
+  "note": "번역 점검: atten=아르텐, chainmails/capes 복수형, whitelabel·gfa60·glovema, Eariing=귀고리, 1.5a/w=즉시 낙찰가, ksers=겹사꾼, botters=매크로 유저, Inkwell 고유명사 유지",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
