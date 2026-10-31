@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 90  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 91  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1780,6 +1780,13 @@ _TRADE_MAP = {"5": "S", "$": "S", "8": "B"}
 def normalize_trade(msg):
     # ": S>" 의 콜론을 K/I 로 읽어서 "KS>" "IS>" 가 되는 경우
     msg = re.sub(r"(?:(?<=\s)|^)[KkIl|:;.][SB]\s*>", lambda m: m.group(0)[1:], msg)
+    # 줄 맨 앞 B> / S> 를 'BY' 'BS' 'SY' 로 읽은 경우 ('BY 2h Blunt' -> '작성자:' 로 번역되던 문제, 대문자만)
+    msg = re.sub(r"^([\s:;]*)(BY|BS)(?!E)(?=\s+[A-Z0-9+]|[A-Z]{3,})", r"\1B> ", msg)
+    msg = re.sub(r"^([\s:;]*)SY(?!ST)(?=\s+[A-Z0-9+]|[A-Z]{3,})", r"\1S> ", msg)
+    # 줄 맨 앞 sell / buy ('sell scrolls' -> '주문서 매도', 'Buy thief ...' -> '구매' 로 번역되던 문제)
+    msg = re.sub(r"^([\s:;]*)(sell|buy)(?=\s+[A-Za-z0-9+])", lambda m: m.group(1) + ("S> " if m.group(2).lower() == "sell" else "B> "), msg, flags=re.I)
+    # '5x70k' -> '5x 70k' (금액이 영어로 남던 문제)
+    msg = re.sub(r"(?<![A-Za-z0-9.])(\d{1,2})x(\d{1,3}(?:\.\d)?[kKmM])(?![A-Za-z])", r"\1x \2", msg)
     # 금액 앞 숫자 1 을 l / I 로 읽은 경우: "l .8m" -> "1.8m", "I mil" -> "1 mil"
     msg = re.sub(r"(?<=\.\d)rn(?![A-Za-z])", "m", msg)  # "I .5rn" -> "I .5m" (m 을 rn 으로 읽음)
     msg = re.sub(r"(?<![A-Za-z0-9])[lI|]\s?\.\s?(\d+)\s?((?i:k|m|mil))(?![A-Za-z])", r"1.\1\2", msg)
