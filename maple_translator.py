@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 86  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 87  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1135,7 +1135,7 @@ class ScreenOCR:
                     if "%" in w2[0]:
                         break
                 rd = parse_exp(" ".join(x[0] for x in part))
-                if rd and (rd.get("pct") is not None or rd.get("dec") is not None) and len(part) >= 2:
+                if rd and (rd.get("pct") is not None or rd.get("dec") is not None) and (len(part) >= 2 or "%" in part[0][0]):
                     wd = part[-1][1] + part[-1][3] - part[0][1]
                     box = self._box(part, 6, max(30, wd * 0.35), 5)
                     if best is None or box[1] > best[1]:   # 여러 개면 화면 아래쪽(상태바) 것
@@ -1174,6 +1174,28 @@ class ScreenOCR:
         cands.sort(key=lambda c: (c[0], c[1]))
         w = cands[0][2]
         return self._box([w], max(25, w[3] * 0.6), max(25, w[3] * 0.6), 5)
+
+    def read_pickups(self, region):
+        """오른쪽 아래 획득 메시지('Mesos를 얻었습니다 (+107)', 'EXP를 얻었습니다 (+122)')를 읽어서
+        [(종류 'M'/'E', 숫자, y)] 위->아래 순서로."""
+        img = self.grab(region)
+        out = []
+        for text, box, _ws in self._ocr(img, "en"):
+            t = text.replace("（", "(").replace("）", ")")
+            m = re.search(r"\(\s*\+\s*([\dOolI,.]{1,7})\s*\)?", t)
+            if not m:
+                continue
+            n = _exp_int(m.group(1).translate(str.maketrans("OolI", "0011")))
+            if n is None:
+                continue
+            head = t[:m.start()].lower()
+            if re.search(r"m[e3]s[o0]", head):
+                if 0 < n <= 50000:
+                    out.append(("M", n, box[1]))
+            elif re.search(r"[e3]xp", head):
+                if 0 < n <= 10_000_000:
+                    out.append(("E", n, box[1]))
+        return out
 
     def find_hud(self, want_exp=True, want_meso=True, exclude=()):
         """게임 창(못 찾으면 모든 모니터)을 읽어서 {"exp": 영역, "meso": 영역, "where": 설명}."""
@@ -1872,6 +1894,47 @@ class MesoTracker:
 
     def rate(self, seconds):
         return self.gained / seconds * 3600 if seconds >= 20 else 0
+
+
+class PickupCounter:
+    """획득 메시지를 1초마다 읽어서 새로 뜬 메소 줄만 더함.
+    메시지는 아래에 새로 생기고 위로 밀려 사라짐 -> 직전 화면의 뒷부분과 이번 화면의 앞부분이 겹치는 만큼은 이미 센 것."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.prev = []
+        self.meso = 0
+        self.exp = 0
+        self.empty = 0
+        self.frames = 0
+
+    def feed(self, entries):
+        keys = [f"{k}{n}" for k, n, _y in entries]
+        self.frames += 1
+        if not keys:
+            self.empty += 1
+            if self.empty >= 6:   # 6초 넘게 아무 메시지 없음 -> 다 사라진 것
+                self.prev = []
+            return []
+        self.empty = 0
+        new = entries
+        for j in range(len(self.prev) + 1):   # 가장 많이 겹치는 위치 (j=끝이면 겹침 없음 -> 전부 새것)
+            tail = self.prev[j:]
+            if keys[:len(tail)] == tail:
+                new = entries[len(tail):]
+                break
+        for k, n, _y in new:
+            if k == "M":
+                self.meso += n
+            else:
+                self.exp += n
+        self.prev = keys
+        return new
+
+    def rate(self, seconds):
+        return self.meso / seconds * 3600 if seconds >= 20 else 0
 
 
 class ExpTracker:
@@ -2976,9 +3039,11 @@ def run_app():
     from tkinter import ttk as _ttk
     exp = ExpTracker()
     meso = MesoTracker()
+    pick = PickupCounter()
     exp_state = {"thread": None, "raw": "", "last_log": 0.0, "seg_map": None, "seg_party": None,
                  "ocr": None, "shown": False, "loc": None, "locating": False, "last_loc": 0.0,
-                 "last_meso_loc": 0.0, "armed": False, "boot_tries": 0}
+                 "last_meso_loc": 0.0, "armed": False, "boot_tries": 0,
+                 "pick_thread": None}
     exp_bar = tk.Frame(root, bg="#1b2430")
     exp_lbl = tk.Label(exp_bar, text="", fg="#ffd43b", bg="#1b2430", anchor="w", justify="left",
                        font=("Malgun Gothic", 10, "bold"))
@@ -2992,6 +3057,45 @@ def run_app():
                       activeforeground="white", bd=0, font=("Malgun Gothic", 9), padx=7, pady=1)
         b.pack(side="right", padx=2)
         return b
+
+    def meso_manual():
+        return bool(cfg.get("meso_manual") and cfg.get("meso_region"))
+
+    def meso_val():
+        return meso.gained if meso_manual() else pick.meso
+
+    def meso_rate(t):
+        return meso.rate(t) if meso_manual() else pick.rate(t)
+
+    def pickup_region():
+        """오른쪽 아래 획득 메시지 칸: 게임 창 기준 (못 찾으면 경험치 줄 기준)."""
+        win = find_game_window()
+        if win:
+            L, T, W, H = win[0]
+            return [int(L + W * 0.50), int(T + H * 0.55), int(W * 0.50), int(H * 0.29)]
+        e = cfg.get("exp_region")
+        if e:
+            return [e[0] + 200, max(0, e[1] - 260), 650, 240]
+        return None
+
+    def pickup_loop():
+        ocr = None
+        reg, reg_t = None, 0.0
+        while exp.running:
+            t0 = time.time()
+            try:
+                if ocr is None:
+                    ocr = ScreenOCR("en", 2.5)
+                if reg is None or t0 - reg_t > 30:
+                    reg, reg_t = pickup_region(), t0
+                if reg:
+                    ents = ocr.read_pickups(reg)
+                    new = pick.feed(ents)
+                    if new:
+                        dlog("PICKUP", ents, "new", new, "meso", pick.meso)
+            except Exception as e:  # noqa: BLE001
+                dlog("PICKUP-ERR", repr(e))
+            time.sleep(max(0.3, 1.0 - (time.time() - t0)))
 
     def exp_write(kind):
         """exp_log.csv 에 한 줄 기록 (나중에 사냥터별 효율 비교용)."""
@@ -3012,8 +3116,7 @@ def run_app():
                             int(exp.rate()), round(exp.pct_rate(), 2), exp.levelups,
                             (int(exp.need * last["pct"] / 100) if exp.need and last.get("pct") is not None else ""),
                             exp.need or "",
-                            (meso.gained if cfg.get("meso_region") else ""),
-                            (int(meso.rate(t)) if cfg.get("meso_region") else "")])
+                            meso_val(), int(meso_rate(t))])
         except Exception as e:  # noqa: BLE001
             dlog("EXP-LOG-ERR", repr(e))
 
@@ -3025,7 +3128,7 @@ def run_app():
                 exp_state["raw"] = raw
                 dlog("EXP", raw, rd)
                 exp.feed(rd)
-                if cfg.get("meso_region"):
+                if meso_manual():
                     mraw, mv = exp_state["ocr"].read_number(cfg["meso_region"])
                     dlog("MESO", mraw, mv)
                     meso.feed(mv)
@@ -3036,13 +3139,9 @@ def run_app():
             # 경험치 줄을 계속 못 읽으면(창을 옮김·해상도 바뀜) 자동으로 다시 찾기
             if exp.fails >= 5 and now - exp_state["last_loc"] > 60:
                 hud_locate(silent=True, want_meso=False)
-            # 메소 칸이 없거나 못 읽으면(인벤토리 닫힘) 1분마다 다시 찾아봄 -> 인벤토리를 열면 알아서 잡힘
-            elif (not cfg.get("meso_region") or meso.fails >= 3) and now - exp_state["last_meso_loc"] > 60:
-                exp_state["last_meso_loc"] = now
-                hud_locate(silent=True, want_exp=False)
             time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
 
-    def hud_locate(silent=False, want_exp=True, want_meso=True, then_start=False, then_arm=False):
+    def hud_locate(silent=False, want_exp=True, want_meso=False, then_start=False, then_arm=False):
         """게임 화면에서 경험치 줄·메소 칸을 자동으로 찾아 저장 (드래그로 영역 지정할 필요 없음)."""
         if exp_state["locating"]:
             return
@@ -3096,8 +3195,6 @@ def run_app():
                      "(그래도 안 되면 [자동찾기]를 오른쪽 클릭해서 직접 드래그)", "err")
         if want_exp and not res.get("exp") and not cfg.get("exp_region"):
             return
-        if want_meso and not res.get("meso") and not silent and want_exp and res.get("exp"):
-            info("메소는 인벤토리를 열면 측정 중에 자동으로 잡혀요.")
         if then_start and cfg.get("exp_region") and not exp.running:
             exp_toggle()
         elif then_arm and cfg.get("exp_region") and not exp.running:
@@ -3145,9 +3242,10 @@ def run_app():
         if exp.running or not cfg.get("exp_auto", True):
             return
         exp_show(True)
+        if not cfg.get("meso_manual") and cfg.pop("meso_region", None):
+            save_config(cfg)   # 예전에 드래그한 메소 칸은 안 씀 (메소는 획득 메시지로 셈)
         if cfg.get("exp_region"):
             exp_arm()
-            hud_locate(silent=True, want_exp=False)   # 메소 칸도 찾아봄 (인벤토리 열려 있으면)
             return
         exp_state["boot_tries"] += 1
         hud_locate(silent=exp_state["boot_tries"] > 1, then_arm=True)
@@ -3185,6 +3283,8 @@ def run_app():
         exp_go.configure(text="■ 정지", bg="#c92a2a")
         exp_state["thread"] = threading.Thread(target=exp_loop, daemon=True)
         exp_state["thread"].start()
+        exp_state["pick_thread"] = threading.Thread(target=pickup_loop, daemon=True)
+        exp_state["pick_thread"].start()
         exp_update()
 
     def exp_reset():
@@ -3193,6 +3293,7 @@ def run_app():
         exp_write("종료")
         exp.reset()
         meso.reset()
+        pick.reset()
         exp_state["seg_map"] = None
         exp_go.configure(text="▶ 측정", bg="#2f9e44")
         if was:
@@ -3230,10 +3331,12 @@ def run_app():
         else:
             txt = (f"⏱ {fmt_hms(t)}   " + (f"Lv{exp.level}  " if exp.level else "") + f"+{exp.gained_exp():,} ({exp.gained_pct:.2f}%)   "
                    f"시간당 {exp.rate():,.0f} ({exp.pct_rate():.1f}%)   레벨업까지 {fmt_eta(exp.eta_sec())}")
-            if cfg.get("meso_region"):
-                txt += f"\n💰 메소 +{meso.gained:,}   시간당 {meso.rate(t):,.0f}"
+            txt += f"\n💰 메소 +{meso_val():,}   시간당 {meso_rate(t):,.0f}"
+            if meso_manual():
                 if exp.running and meso.fails >= 3:
-                    txt += "   ⚠ 메소 숫자를 못 읽어요 (인벤토리를 열어 두면 자동으로 다시 찾아요)"
+                    txt += "   ⚠ 인벤토리 메소 숫자를 못 읽어요"
+            elif exp.running and t > 120 and pick.meso == 0:
+                txt += "   (오른쪽 아래 'Mesos를 얻었습니다' 메시지를 읽는 중 — 번역기 창이 가리지 않게 해 주세요)"
             if exp.levelups:
                 txt += f"   🎉 레벨업 {exp.levelups}번"
             if exp.running and exp.fails >= 3:
@@ -3598,6 +3701,8 @@ def run_app():
                 info("영역이 너무 작아요. 다시 선택하세요.", "err")
                 return
             cfg[target] = [left, top, w, h]
+            if is_meso:
+                cfg["meso_manual"] = True
             save_config(cfg)
             if is_meso:
                 meso.reset()
