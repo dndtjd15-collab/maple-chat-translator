@@ -1,6 +1,6 @@
 {
-  "version": 87,
-  "note": "메소 측정을 오른쪽 아래 획득 메시지('Mesos를 얻었습니다 (+N)')로 자동 계산 — 인벤토리 안 열어도 됨. 예전에 잘못 잡힌 메소 칸(채팅창) 무시. 경험치 줄이 한 단어로 붙어 읽혀도 찾음",
+  "version": 88,
+  "note": "번역 점검 — OCR 금액(l.lm·I.IM=110만, 1007018.3K=100% 1만8천3백), need 20 more=20개 더 필요, 조사 '를→을' 교정, ICYs=고드름·BW=둔기·fkan=태극부채·Flash Sale=급처·Mass buying=대량 구매·Mystery Face coup=성형 쿠폰, 저장 번역 91개(쿰비→금비 표창, Meba→메바 등) 수정",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
