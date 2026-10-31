@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 83  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 84  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -209,7 +209,9 @@ class Glossary:
         # '1.5a/w' -> '1.5 a/w' (숫자에 붙은 a/w, c/o 가 영어로 남던 문제, 숫자는 그대로)
         text = re.sub(r"(\d)(?=(?:a/w|c/[o0])(?![A-Za-z]))", r"\1 ", text, flags=re.IGNORECASE)
         # 'SELL EARRING INT FOR 60k' -> 'for' 가 '6만에 대한' 으로 어색하게 번역되던 문제: 금액 앞 for 는 뺌
-        text = re.sub(r"(?<![A-Za-z])for\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
+        # OCR: '2rn' = 2m ('Golve+16mattk-2rn' 처럼 m 이 rn 으로 읽힘)
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)rn(?![A-Za-z])", r"\1m", text)
+        text = re.sub(r"(?<![A-Za-z])(?:for|at)\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",
                       money, text, flags=re.IGNORECASE)
 
@@ -238,18 +240,26 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])x\s?(\d{1,3})(?![0-9A-Za-z%])|(?<![A-Za-z0-9])(\d{1,3})\s?x(?![A-Za-z])",
                       lambda m: hold((m.group(1) or m.group(2)) + "개"), text, flags=re.I)
         _stat = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "att": "공", "atk": "공", "watk": "공", "ma": "마", "cr": "크리",
-                 "matk": "마", "matt": "마", "watt": "공", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공",
+                 "matk": "마", "matt": "마", "mattk": "마", "attk": "공", "watt": "공", "acc": "명중", "crit": "크리", "cd": "크뎀", "cdmg": "크뎀", "wa": "공",
                  "def": "방어력", "wdef": "물방", "mdef": "마방", "ctt": "크리"}
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?([mw]?at)[l1I]<", lambda m: m.group(1) + " " + m.group(2) + "k", text, flags=re.I)  # OCR: 'Matl<' = Matk
         text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?M\.\s?(atk|att)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text, flags=re.I)  # 101M.Atk -> 101마
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|matk|matt|atk|att|acc|crit|ctt|cdmg|cd|cr|wa|ma|wdef|mdef|def)(?![A-Za-z])",
-                      lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
+        # '4int2cd' / '6LUK2cd' 처럼 붙은 스탯은 두 번 돌려야 뒤쪽(2cd)도 잡힘
+        for _ in range(2):
+            text = re.sub(r"(?<![A-Za-z0-9.])(\d{1,3})\s?(str|dex|int|luk|watk|watt|mattk|matk|matt|attk|atk|att|acc|crit|ctt|cdmg|cd|cr|wa|ma|wdef|mdef|def)(?![A-Za-z])",
+                          lambda m: hold(m.group(1) + _stat[m.group(2).lower()]), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(watk|matk|matt|att|ma)(\d{2,3})(?![0-9A-Za-z%])",
                       lambda m: hold(_stat[m.group(1).lower()] + m.group(2)), text, flags=re.I)
         # 'cd2' / 'str10' / 'attk35' -> 2크뎀 / 10힘 / 35공 (영어로 남던 문제)
         _stat2 = {"str": "힘", "dex": "민첩", "int": "지력", "luk": "운", "cd": "크뎀", "crit": "크리", "attk": "공", "atk": "공"}
         text = re.sub(r"(?<![A-Za-z0-9])(str|dex|int|luk|cd|crit|attk|atk)(\d{1,2})(?![0-9A-Za-z%.])",
                       lambda m: hold(m.group(2) + _stat2[m.group(1).lower()]), text, flags=re.I)
+        # 'need 6' -> 6개 필요 / 'party of 6', 'pt of 6' -> 6인 파티
+        text = re.sub(r"(?<![A-Za-z])need\s?(\d{1,2})(?![0-9A-Za-z%])", lambda m: hold(m.group(1) + "개 필요"), text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z])(?:a\s)?(?:party|pt)\s?of\s?(\d)(?![0-9])", lambda m: hold(m.group(1) + "인 파티"), text, flags=re.I)
+        # 'S dex6 250k B hat acc 20k' -> 줄 맨 앞이나 금액 바로 뒤의 홀로 쓴 S/B 는 팝니다/삽니다
+        text = re.sub(r"^(\s*)([SB])\s(?=[A-Za-z]|\s*ZZ)", lambda m: m.group(1) + hold("[팝니다]" if m.group(2) == "S" else "[삽니다]") + " ", text)
+        text = re.sub(r"((?:ZZ\d+QQ|\]|/)\s+)([SB])\s(?=[A-Za-z]|\s*ZZ)", lambda m: m.group(1) + hold("[팝니다]" if m.group(2) == "S" else "[삽니다]") + " ", text)
         # '6/7 SCROLLS' 가 '6월 7일' 날짜로 번역되던 문제: 숫자/숫자 는 그대로 보존
         text = re.sub(r"(?<![\d/.])(\d{1,2})/(\d{1,2})(?![\d/])(?=\s?(?:scrolls?|slots?|att|atk|attk|watt|matt|matk)(?![A-Za-z]))",
                       lambda m: hold(m.group(1) + "/" + m.group(2)), text, flags=re.I)

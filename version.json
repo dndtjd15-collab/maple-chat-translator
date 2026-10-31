@@ -1,6 +1,6 @@
 {
-  "version": 83,
-  "note": "번역 점검: cd2/str10/attk35·6dex2cd 스탯, EARRING70kEA·selling3.6m 금액, 6/7 날짜 오역 방지, 장마/완마/활공 변형, Eanin=귀고리, 선착순·최고가 판매·빈 맵·불타버린 땅, trash 잡템 오역 제거, no u·naur·givvies",
+  "version": 84,
+  "note": "번역 점검(10/31 자유시장 채팅) — wisp me/send whisper=귓 주세요, GM이 '좋은 아침'으로 번역되던 문제, 4int2cd·6LUK2cd·+16mattk 붙은 스탯, 2rn=2m, need 6=6개 필요, 6인 파티, 홀로 쓴 S/B, 메바·블루 칼라프·블루 아르텐·황금 두더지·이블 스컬 등 아이템 한글명, 급처·최고가 낙찰·가격 제안 환영",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
