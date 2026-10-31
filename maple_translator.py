@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 89  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 90  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1235,6 +1235,59 @@ class ScreenOCR:
                     out.append(("E", n, box[1]))
         return out
 
+    @staticmethod
+    def _white_boxes(img, min_w=100, max_w=320, min_h=7, max_h=22):
+        """흰색 가로 막대(인벤토리 메소 칸 같은 것)를 찾음 -> [(x, y, w, h)] (그림 좌표).
+        숫자 때문에 흰 줄이 끊겨도 7px 이하 틈은 이어 붙임."""
+        W, H = img.size
+        data = img.convert("L").point(lambda v: 255 if v >= 230 else 0).tobytes()
+        rects = []
+        for y in range(H):
+            row = data[y * W:(y + 1) * W]
+            merged = []
+            for m in re.finditer(rb"\xff{3,}", row):
+                if merged and m.start() - merged[-1][1] <= 7:
+                    merged[-1][1] = m.end()
+                else:
+                    merged.append([m.start(), m.end()])
+            for x0, x1 in merged:
+                if not (min_w <= x1 - x0 <= max_w):
+                    continue
+                for r in rects:
+                    if abs(r[0] - x0) <= 3 and abs(r[1] - x1) <= 3 and 0 < y - r[3] <= 2:
+                        r[3] = y
+                        r[4] += 1
+                        break
+                else:
+                    rects.append([x0, x1, y, y, 1])
+        return [(r[0], r[2], r[1] - r[0], r[3] - r[2] + 1) for r in rects if min_h <= r[4] <= max_h]
+
+    def find_meso_box(self, areas, exclude=()):
+        """인벤토리 아래 흰 메소 칸(숫자 + 'MESOS')을 그림으로 찾고, 숫자가 읽히는지 확인해서 영역 반환."""
+        def overlap(a, b):
+            return b and a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+        for a in areas:
+            old = self.upscale
+            self.upscale = 1
+            try:
+                img = self.grab(a)
+            finally:
+                self.upscale = old
+            boxes = self._white_boxes(img)
+            dlog("MESO-BOX-CANDS", boxes[:8])
+            for bx, by, bw, bh in boxes:
+                reg = [int(a[0] + bx - 2), int(a[1] + by - 3), int(bw + 4), int(bh + 6)]
+                if any(overlap(reg, e) for e in exclude):
+                    continue
+                try:
+                    txt, v = self.read_number(reg)
+                except Exception:  # noqa: BLE001
+                    continue
+                dlog("MESO-BOX-TRY", reg, txt, v)
+                if v is not None and re.search(r"\d", txt or ""):
+                    return reg
+        return None
+
     def find_hud(self, want_exp=True, want_meso=True, exclude=()):
         """게임 창(못 찾으면 모든 모니터)을 읽어서 {"exp": 영역, "meso": 영역, "where": 설명}."""
         areas, where = [], "모니터 전체"
@@ -1261,7 +1314,9 @@ class ScreenOCR:
                 words += more
         if want_meso:
             ex = tuple(b for b in exclude if b) + ((out["exp"],) if out["exp"] else ())
-            out["meso"] = self.find_meso(words, ex)
+            out["meso"] = self.find_meso_box(areas, ex)   # 1순위: 흰 메소 칸을 그림으로 찾기
+            if out["meso"] is None:
+                out["meso"] = self.find_meso(words, ex)
             if out["meso"] is None:   # 인벤토리 숫자가 작아서 못 읽었으면 크게 다시
                 more = []
                 for a in areas:
@@ -3088,7 +3143,7 @@ def run_app():
     exp_state = {"thread": None, "raw": "", "last_log": 0.0, "seg_map": None, "seg_party": None,
                  "ocr": None, "shown": False, "loc": None, "locating": False, "last_loc": 0.0,
                  "last_meso_loc": 0.0, "armed": False, "boot_tries": 0,
-                 "pick_thread": None}
+                 "pick_thread": None, "gen": 0}
     exp_bar = tk.Frame(root, bg="#1b2430")
     exp_lbl = tk.Label(exp_bar, text="", fg="#ffd43b", bg="#1b2430", anchor="w", justify="left",
                        font=("Malgun Gothic", 10, "bold"))
@@ -3125,10 +3180,10 @@ def run_app():
             return [e[0] + 200, max(0, e[1] - 260), 650, 240]
         return None
 
-    def pickup_loop():
+    def pickup_loop(gen):
         ocr = None
         reg, reg_t = None, 0.0
-        while exp.running:
+        while exp.running and exp_state["gen"] == gen:
             t0 = time.time()
             try:
                 if ocr is None:
@@ -3169,8 +3224,8 @@ def run_app():
         except Exception as e:  # noqa: BLE001
             dlog("EXP-LOG-ERR", repr(e))
 
-    def exp_loop():
-        while exp.running:
+    def exp_loop(gen):
+        while exp.running and exp_state["gen"] == gen:
             t0 = time.time()
             try:
                 raw, rd = exp_state["ocr"].read_exp(cfg["exp_region"])
@@ -3336,9 +3391,10 @@ def run_app():
         exp.start()
         exp_state["last_log"] = time.time()
         exp_go.configure(text="■ 정지", bg="#c92a2a")
-        exp_state["thread"] = threading.Thread(target=exp_loop, daemon=True)
+        exp_state["gen"] += 1   # 예전 측정 스레드는 끝나게 (리셋·재시작 때 중복으로 돌던 문제)
+        exp_state["thread"] = threading.Thread(target=exp_loop, args=(exp_state["gen"],), daemon=True)
         exp_state["thread"].start()
-        exp_state["pick_thread"] = threading.Thread(target=pickup_loop, daemon=True)
+        exp_state["pick_thread"] = threading.Thread(target=pickup_loop, args=(exp_state["gen"],), daemon=True)
         exp_state["pick_thread"].start()
         exp_update()
 
