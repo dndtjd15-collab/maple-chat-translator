@@ -1,6 +1,6 @@
 {
-  "version": 84,
-  "note": "번역 점검(10/31 자유시장 채팅) — wisp me/send whisper=귓 주세요, GM이 '좋은 아침'으로 번역되던 문제, 4int2cd·6LUK2cd·+16mattk 붙은 스탯, 2rn=2m, need 6=6개 필요, 6인 파티, 홀로 쓴 S/B, 메바·블루 칼라프·블루 아르텐·황금 두더지·이블 스컬 등 아이템 한글명, 급처·최고가 낙찰·가격 제안 환영",
+  "version": 85,
+  "note": "번역 점검(10/31 자유시장) — 105 M Att가 1억500만 금액으로 읽히던 문제(=105마), IMIL·1. Imil·l. 5m·1 .3mil·1 00k·1,5m 같은 OCR 금액, 97K LEFT=남음, 2ea=2개, FM5=자유시장 5, 12pack, highest wins=최고가 낙찰, too many pm=귓 너무 많이 와요, inkwash name·D horn·미스테리 팔레트",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
