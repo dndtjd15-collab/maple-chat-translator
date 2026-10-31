@@ -1,6 +1,6 @@
 {
-  "version": 82,
-  "note": "번역 점검: atten=아르텐, chainmails/capes 복수형, whitelabel·gfa60·glovema, Eariing=귀고리, 1.5a/w=즉시 낙찰가, ksers=겹사꾼, botters=매크로 유저, Inkwell 고유명사 유지",
+  "version": 83,
+  "note": "번역 점검: cd2/str10/attk35·6dex2cd 스탯, EARRING70kEA·selling3.6m 금액, 6/7 날짜 오역 방지, 장마/완마/활공 변형, Eanin=귀고리, 선착순·최고가 판매·빈 맵·불타버린 땅, trash 잡템 오역 제거, no u·naur·givvies",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
