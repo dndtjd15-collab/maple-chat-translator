@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 91  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 92  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -176,8 +176,17 @@ class Glossary:
             if not re.search(r"[A-Za-z]", inner):
                 return hold(apply_ko_terms(m.group(0)))  # 한글/숫자만 -> 보존 (클로->아대 같은 교체만)
             out = []
-            for part in re.split(r"([A-Za-z][A-Za-z'./ -]*[A-Za-z]|[A-Za-z])", inner):
+            # '[hair 50k]' 처럼 대괄호 안 금액: 50 과 k 가 갈라져 k 가 '오케이'로 번역되던 문제 -> 금액은 한 덩어리로
+            _br_money = (r"(?<![A-Za-z0-9+.,])\d+(?:[.,]\d+)?\s?(?:k|kk|m|mil|mill|million)"
+                         r"(?![A-Za-z0-9]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b)|\s?(?:att|atk|attack|matk|matt|def)\b)")
+            for part in re.split(r"(" + _br_money + r"|[A-Za-z][A-Za-z'./ -]*[A-Za-z]|[A-Za-z])", inner, flags=re.I):
                 if not part:
+                    continue
+                mm = re.fullmatch(r"(\d+(?:[.,]\d+)?)\s?(k|kk|m|mil|mill|million)", part, re.I)
+                if mm and re.fullmatch(_br_money, part, re.I):
+                    raw = mm.group(1)
+                    num = float(raw.replace(",", ".") if re.fullmatch(r"\d{1,3},\d{1,2}", raw) else raw.replace(",", ""))
+                    out.append(hold(format_meso(num * (1_000 if mm.group(2).lower().startswith("k") else 1_000_000))))
                     continue
                 if re.fullmatch(r"[A-Za-z][A-Za-z'./ -]*", part):
                     key = re.sub(r"\s+", " ", part.strip()).lower()

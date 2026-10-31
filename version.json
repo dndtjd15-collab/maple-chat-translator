@@ -1,6 +1,6 @@
 {
-  "version": 91,
-  "note": "번역 점검: 줄 맨 앞 BY/BS/SY·sell/buy를 [삽니다]/[팝니다]로, 5x70k 금액, Dager·Staf·2hAxe·PetSpeed·Gloves matt·Superstar shirt 등 용어 추가",
+  "version": 92,
+  "note": "번역 점검: 대괄호 안 금액([hair 50k]의 k가 '오케이'로 번역되던 문제) 수정, ThrowStar·PermNx·lnkWash·Dark Guardian·전사의 물약·장마(MGC ATK) 등 용어 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
