@@ -1,6 +1,6 @@
 {
-  "version": 85,
-  "note": "번역 점검(10/31 자유시장) — 105 M Att가 1억500만 금액으로 읽히던 문제(=105마), IMIL·1. Imil·l. 5m·1 .3mil·1 00k·1,5m 같은 OCR 금액, 97K LEFT=남음, 2ea=2개, FM5=자유시장 5, 12pack, highest wins=최고가 낙찰, too many pm=귓 너무 많이 와요, inkwash name·D horn·미스테리 팔레트",
+  "version": 86,
+  "note": "경험치·메소 측정 자동화: 영역 드래그 없이 켜면 게임 화면에서 경험치 줄·인벤토리 메소를 자동으로 찾고, 경험치가 오르면 자동으로 측정 시작. 창을 옮기거나 인벤토리를 다시 열어도 자동으로 다시 찾음. [영역]/[메소] 버튼 → [자동찾기]",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

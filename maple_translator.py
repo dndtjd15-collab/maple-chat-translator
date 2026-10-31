@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 85  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 86  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -859,6 +859,68 @@ class SeenLines:
         return True
 
 
+def find_game_window():
+    """메이플 게임 창의 화면 위치 ((x, y, w, h), 창 제목). 못 찾으면 None.
+    브라우저 탭(메소워치 등)·번역기 자신은 제외."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    except Exception:  # noqa: BLE001
+        return None
+    skip_exe = ("chrome.exe", "msedge.exe", "whale.exe", "firefox.exe", "opera.exe", "brave.exe", "explorer.exe",
+                "python.exe", "pythonw.exe", "kakaotalk.exe", "discord.exe", "code.exe", "notepad.exe")
+    found = []
+
+    def exe_of(hwnd):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        h = kernel32.OpenProcess(0x1000, False, pid.value)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(520)
+            n = wintypes.DWORD(520)
+            if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+                return os.path.basename(buf.value).lower()
+        finally:
+            kernel32.CloseHandle(h)
+        return ""
+
+    def cb(hwnd, _lp):
+        try:
+            if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+                return True
+            n = user32.GetWindowTextLengthW(hwnd)
+            if not n:
+                return True
+            buf = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(hwnd, buf, n + 1)
+            title = buf.value
+            if not re.search(r"maple\s?story|메이플", title, re.I) or "번역" in title:
+                return True
+            if exe_of(hwnd) in skip_exe:
+                return True
+            r = wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(r))
+            w, h = r.right - r.left, r.bottom - r.top
+            if w >= 640 and h >= 400:
+                found.append((w * h, (r.left, r.top, w, h), title))
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
+    try:
+        proc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(cb)
+        user32.EnumWindows(proc, 0)
+    except Exception:  # noqa: BLE001
+        return None
+    if not found:
+        return None
+    found.sort(reverse=True)
+    return found[0][1], found[0][2]
+
+
 # ----------------------------------------------------------------------------
 # 화면 캡처 + 윈도우 OCR
 # ----------------------------------------------------------------------------
@@ -985,6 +1047,161 @@ class ScreenOCR:
             elif r3 and not rd:
                 rd = r3
         return " / ".join(tries), rd
+
+    # --- 경험치 줄·메소 칸 자동 찾기 (영역을 직접 드래그하지 않아도 되게) ---------------------
+    def scan_words(self, area, scale=2.0):
+        """넓은 화면 영역을 조각내서 OCR -> [(글자, x, y, w, h)] (화면 좌표).
+        윈도우 OCR 은 그림 한 변이 2600px 를 넘으면 못 읽어서 조각으로 나눔."""
+        import asyncio
+        import winocr
+        from PIL import Image
+        L, T, W, H = [int(v) for v in area]
+        tile = max(300, int(2400 / scale))
+        words = []
+        y = 0
+        while y < H:
+            hh = min(tile, H - y)
+            x = 0
+            while x < W:
+                ww = min(tile, W - x)
+                old = self.upscale
+                self.upscale = 1
+                try:
+                    img = self.grab((L + x, T + y, ww, hh))
+                finally:
+                    self.upscale = old
+                img = img.resize((max(1, int(ww * scale)), max(1, int(hh * scale))), Image.LANCZOS)
+                lang = "ko" if getattr(self, "_no_en", False) else "en"
+                try:
+                    res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(img, lang)))
+                except AssertionError:
+                    self._no_en = True
+                    res = asyncio.run(winocr.to_coroutine(winocr.recognize_pil(img, "ko")))
+                for ln in getattr(res, "lines", None) or []:
+                    for w in getattr(ln, "words", None) or []:
+                        t = (getattr(w, "text", "") or "").strip()
+                        r = w.bounding_rect
+                        if t:
+                            words.append((t, L + x + r.x / scale, T + y + r.y / scale, r.width / scale, r.height / scale))
+                if x + ww >= W:
+                    break
+                x += ww - 80   # 조각 경계에 걸린 글자도 읽히게 겹쳐서
+            if y + hh >= H:
+                break
+            y += hh - 50
+        return words
+
+    @staticmethod
+    def _rows(words):
+        """단어들을 같은 높이끼리 묶어 줄로: [[단어...], ...] (각 줄은 왼쪽부터)."""
+        rows = []
+        for w in sorted(words, key=lambda w: w[2] + w[4] / 2):
+            cy = w[2] + w[4] / 2
+            if rows and abs(cy - rows[-1][0]) <= max(rows[-1][1], w[4]) * 0.5:
+                rows[-1][2].append(w)
+                rows[-1][1] = max(rows[-1][1], w[4])
+            else:
+                rows.append([cy, w[4], [w]])
+        out = []
+        for _cy, _h, ws in rows:
+            ws = sorted(ws, key=lambda w: w[1])
+            # 조각 겹침으로 같은 단어가 두 번 잡힌 것 제거
+            dedup = []
+            for w in ws:
+                if dedup and w[0] == dedup[-1][0] and abs(w[1] - dedup[-1][1]) < 6:
+                    continue
+                dedup.append(w)
+            out.append(dedup)
+        return out
+
+    @staticmethod
+    def _box(ws, padl, padr, padv):
+        x0 = min(w[1] for w in ws); y0 = min(w[2] for w in ws)
+        x1 = max(w[1] + w[3] for w in ws); y1 = max(w[2] + w[4] for w in ws)
+        return [int(x0 - padl), int(y0 - padv), int(x1 - x0 + padl + padr), int(y1 - y0 + padv * 2)]
+
+    def find_exp(self, words):
+        """'EXP 175,988 [44.99%]' 줄을 찾아 경험치 영역 [x, y, w, h] 반환 (없으면 None)."""
+        best = None
+        for ws in self._rows(words):
+            for i, w in enumerate(ws):
+                if not re.match(r"^E?XP\b|^EXP", w[0], re.I):
+                    continue
+                part = [w]
+                for w2 in ws[i + 1:i + 5]:
+                    if w2[1] - (part[-1][1] + part[-1][3]) > 120:
+                        break
+                    part.append(w2)
+                    if "%" in w2[0]:
+                        break
+                rd = parse_exp(" ".join(x[0] for x in part))
+                if rd and (rd.get("pct") is not None or rd.get("dec") is not None) and len(part) >= 2:
+                    wd = part[-1][1] + part[-1][3] - part[0][1]
+                    box = self._box(part, 6, max(30, wd * 0.35), 5)
+                    if best is None or box[1] > best[1]:   # 여러 개면 화면 아래쪽(상태바) 것
+                        best = box
+        if best is None:  # 'EXP' 글자를 못 읽은 경우: '12,345 [12.34%]' 모양만으로
+            for ws in self._rows(words):
+                txt = " ".join(x[0] for x in ws)
+                m = re.search(r"\d[\d,]{2,}\s*\[?\s*\d{1,3}[.,]\d{2}\s*%", txt)
+                if m:
+                    part = [w for w in ws if re.search(r"[\d%\[\]]", w[0])]
+                    if part:
+                        wd = part[-1][1] + part[-1][3] - part[0][1]
+                        box = self._box(part, 8, max(30, wd * 0.35), 5)
+                        if best is None or box[1] > best[1]:
+                            best = box
+        return best
+
+    def find_meso(self, words, exclude=()):
+        """인벤토리 메소 숫자('630,918')를 찾아 메소 영역 반환 (인벤토리가 닫혀 있으면 None)."""
+        def inside(w, b):
+            if not b:
+                return False
+            cx, cy = w[1] + w[3] / 2, w[2] + w[4] / 2
+            return b[0] <= cx <= b[0] + b[2] and b[1] <= cy <= b[1] + b[3]
+        cands = []
+        for ws in self._rows(words):
+            for w in ws:
+                t = w[0].replace(".", ",")
+                if not re.fullmatch(r"\d{1,3}(?:,\d{3})+", t) or int(t.replace(",", "")) < 1000:
+                    continue
+                if any(inside(w, b) for b in exclude):
+                    continue
+                cands.append((len(ws), -w[2], w))   # 줄에 혼자 있는 숫자 우선
+        if not cands:
+            return None
+        cands.sort(key=lambda c: (c[0], c[1]))
+        w = cands[0][2]
+        return self._box([w], max(25, w[3] * 0.6), max(25, w[3] * 0.6), 5)
+
+    def find_hud(self, want_exp=True, want_meso=True, exclude=()):
+        """게임 창(못 찾으면 모든 모니터)을 읽어서 {"exp": 영역, "meso": 영역, "where": 설명}."""
+        areas, where = [], "모니터 전체"
+        win = find_game_window()
+        if win:
+            areas, where = [win[0]], win[1]
+        else:
+            import mss
+            with mss.mss() as m:
+                areas = [(d["left"], d["top"], d["width"], d["height"]) for d in m.monitors[1:]] or \
+                        [(m.monitors[0]["left"], m.monitors[0]["top"], m.monitors[0]["width"], m.monitors[0]["height"])]
+        out = {"exp": None, "meso": None, "where": where}
+        words = []
+        for a in areas:
+            words += self.scan_words(a, 2.0)
+        if want_exp:
+            out["exp"] = self.find_exp(words)
+            if out["exp"] is None:   # 글자가 작아서 못 읽었으면 아래쪽 1/5 만 더 크게 다시
+                more = []
+                for a in areas:
+                    h = max(120, a[3] // 5)
+                    more += self.scan_words((a[0], a[1] + a[3] - h, a[2], h), 3.0)
+                out["exp"] = self.find_exp(more)
+                words += more
+        if want_meso:
+            out["meso"] = self.find_meso(words, tuple(exclude) + ((out["exp"],) if out["exp"] else ()))
+        return out
 
     def _ocr(self, img, lang):
         """OCR 후 단어들을 '같은 높이'끼리 다시 묶어서 한 줄로 만든다.
@@ -2760,7 +2977,8 @@ def run_app():
     exp = ExpTracker()
     meso = MesoTracker()
     exp_state = {"thread": None, "raw": "", "last_log": 0.0, "seg_map": None, "seg_party": None,
-                 "ocr": None, "shown": False}
+                 "ocr": None, "shown": False, "loc": None, "locating": False, "last_loc": 0.0,
+                 "last_meso_loc": 0.0, "armed": False, "boot_tries": 0}
     exp_bar = tk.Frame(root, bg="#1b2430")
     exp_lbl = tk.Label(exp_bar, text="", fg="#ffd43b", bg="#1b2430", anchor="w", justify="left",
                        font=("Malgun Gothic", 10, "bold"))
@@ -2814,7 +3032,127 @@ def run_app():
             except Exception as e:  # noqa: BLE001
                 dlog("EXP-ERR", repr(e))
                 exp.feed(None)
+            now = time.time()
+            # 경험치 줄을 계속 못 읽으면(창을 옮김·해상도 바뀜) 자동으로 다시 찾기
+            if exp.fails >= 5 and now - exp_state["last_loc"] > 60:
+                hud_locate(silent=True, want_meso=False)
+            # 메소 칸이 없거나 못 읽으면(인벤토리 닫힘) 1분마다 다시 찾아봄 -> 인벤토리를 열면 알아서 잡힘
+            elif (not cfg.get("meso_region") or meso.fails >= 3) and now - exp_state["last_meso_loc"] > 60:
+                exp_state["last_meso_loc"] = now
+                hud_locate(silent=True, want_exp=False)
             time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
+
+    def hud_locate(silent=False, want_exp=True, want_meso=True, then_start=False, then_arm=False):
+        """게임 화면에서 경험치 줄·메소 칸을 자동으로 찾아 저장 (드래그로 영역 지정할 필요 없음)."""
+        if exp_state["locating"]:
+            return
+        exp_state["locating"] = True
+        if want_exp:
+            exp_state["last_loc"] = time.time()
+
+        def work():
+            res = {}
+            try:
+                if exp_state["loc"] is None:
+                    exp_state["loc"] = ScreenOCR("en", 1.0)
+                ex = [cfg.get("region")] + ([cfg.get("exp_region")] if not want_exp else [])
+                res = exp_state["loc"].find_hud(want_exp, want_meso, exclude=ex)
+            except Exception as e:  # noqa: BLE001
+                dlog("HUD-ERR", repr(e))
+                res = {"err": str(e)}
+            dlog("HUD", res)
+            root.after(0, lambda: hud_found(res, silent, want_exp, want_meso, then_start, then_arm))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _same_box(a, b):
+        return bool(a and b) and abs(a[0] - b[0]) <= 12 and abs(a[1] - b[1]) <= 8
+
+    def hud_found(res, silent, want_exp, want_meso, then_start, then_arm):
+        exp_state["locating"] = False
+        msg = []
+        if want_exp and res.get("exp"):
+            if not _same_box(cfg.get("exp_region"), res["exp"]):
+                cfg["exp_region"] = res["exp"]
+                msg.append("경험치 줄")
+            exp.fails = 0
+        if want_meso and res.get("meso"):
+            if not _same_box(cfg.get("meso_region"), res["meso"]):
+                cfg["meso_region"] = res["meso"]
+                if not exp.running:
+                    meso.reset()
+                msg.append("메소(인벤토리)")
+            meso.fails = 0
+        save_config(cfg)
+        if msg:
+            exp_show(True)
+            if not silent or "경험치 줄" in msg or "메소(인벤토리)" in msg:
+                info("자동으로 찾았어요: " + ", ".join(msg) + f"  ({res.get('where', '')})")
+        elif not silent:
+            if res.get("err"):
+                info("자동 찾기 실패: " + res["err"], "err")
+            elif want_exp and not res.get("exp"):
+                info("게임 화면에서 경험치 줄을 못 찾았어요. 게임 창이 가려지지 않게 하고 [자동찾기]를 다시 누르세요. "
+                     "(그래도 안 되면 [자동찾기]를 오른쪽 클릭해서 직접 드래그)", "err")
+        if want_exp and not res.get("exp") and not cfg.get("exp_region"):
+            return
+        if want_meso and not res.get("meso") and not silent and want_exp and res.get("exp"):
+            info("메소는 인벤토리를 열면 측정 중에 자동으로 잡혀요.")
+        if then_start and cfg.get("exp_region") and not exp.running:
+            exp_toggle()
+        elif then_arm and cfg.get("exp_region") and not exp.running:
+            exp_arm()
+        exp_update()
+
+    def exp_arm():
+        """경험치가 오르기 시작하면 그때 측정 시작 (번역기만 켜 두고 사냥 안 하는 시간은 안 셈)."""
+        if exp.running or exp_state["armed"] or not cfg.get("exp_region"):
+            return
+        exp_state["armed"] = True
+        exp_update()
+
+        def watch():
+            ocr = None
+            first = None
+            bad = 0
+            while exp_state["armed"] and not exp.running:
+                try:
+                    if ocr is None:
+                        ocr = ScreenOCR("en", 3.0)
+                    _raw, rd = ocr.read_exp(cfg["exp_region"])
+                    p = rd.get("pct") if rd else None
+                    if p is None:
+                        bad += 1
+                        if bad >= 5 and time.time() - exp_state["last_loc"] > 60:
+                            bad = 0
+                            hud_locate(silent=True)
+                    else:
+                        bad = 0
+                        if first is None:
+                            first = p
+                        elif 0 < p - first < 20 or (first - p > 50):   # 올랐거나 레벨업
+                            dlog("EXP-AUTO-START", first, p)
+                            root.after(0, lambda: (exp_state["armed"] and not exp.running) and exp_toggle())
+                            return
+                except Exception as e:  # noqa: BLE001
+                    dlog("EXP-ARM-ERR", repr(e))
+                time.sleep(3)
+
+        threading.Thread(target=watch, daemon=True).start()
+
+    def exp_auto_boot():
+        """번역기를 켜면: 경험치 줄·메소 자동 찾기 -> 경험치가 오르면 자동으로 측정 시작."""
+        if exp.running or not cfg.get("exp_auto", True):
+            return
+        exp_show(True)
+        if cfg.get("exp_region"):
+            exp_arm()
+            hud_locate(silent=True, want_exp=False)   # 메소 칸도 찾아봄 (인벤토리 열려 있으면)
+            return
+        exp_state["boot_tries"] += 1
+        hud_locate(silent=exp_state["boot_tries"] > 1, then_arm=True)
+        if exp_state["boot_tries"] < 40:   # 게임을 나중에 켜도 30초마다 다시 찾아봄 (약 20분)
+            root.after(30000, lambda: (not cfg.get("exp_region")) and exp_auto_boot())
 
     def exp_begin_segment():
         exp_state["seg_map"] = ""
@@ -2827,9 +3165,10 @@ def run_app():
             exp_go.configure(text="▶ 측정", bg="#2f9e44")
             exp_update()
             return
+        exp_state["armed"] = False   # 직접 누르면 '경험치 오르면 자동 시작' 대기는 끝
         if not cfg.get("exp_region"):
-            info("먼저 경험치 숫자가 있는 곳을 드래그해서 지정하세요.")
-            select_region("exp_region")
+            info("경험치 줄을 자동으로 찾는 중이에요... (게임 화면이 보이게 해 두세요)")
+            hud_locate(silent=False, then_start=True)
             return
         if exp_state["ocr"] is None:
             try:
@@ -2885,7 +3224,8 @@ def run_app():
     def exp_update():
         t = exp.total_time()
         if not exp.running and t == 0 and exp.gained_exp() == 0:
-            txt = ("⏱ [영역]으로 경험치 숫자 지정 → [▶ 측정] (F7)" if not cfg.get("exp_region")
+            txt = ("⏱ 경험치 줄 자동 찾는 중... (게임 화면이 보이게 해 두세요)" if not cfg.get("exp_region")
+                   else "⏱ 대기 중 — 경험치가 오르면 자동으로 측정 시작 (바로 시작: ▶ 측정 / F7)" if exp_state["armed"]
                    else "⏱ 경험치 측정 준비됨 → [▶ 측정] 또는 F7")
         else:
             txt = (f"⏱ {fmt_hms(t)}   " + (f"Lv{exp.level}  " if exp.level else "") + f"+{exp.gained_exp():,} ({exp.gained_pct:.2f}%)   "
@@ -2893,11 +3233,11 @@ def run_app():
             if cfg.get("meso_region"):
                 txt += f"\n💰 메소 +{meso.gained:,}   시간당 {meso.rate(t):,.0f}"
                 if exp.running and meso.fails >= 3:
-                    txt += "   ⚠ 메소 숫자를 못 읽어요 (인벤토리를 열어 두고 [메소]로 다시 지정)"
+                    txt += "   ⚠ 메소 숫자를 못 읽어요 (인벤토리를 열어 두면 자동으로 다시 찾아요)"
             if exp.levelups:
                 txt += f"   🎉 레벨업 {exp.levelups}번"
             if exp.running and exp.fails >= 3:
-                txt += "\n⚠ 경험치 숫자를 못 읽고 있어요 → [영역]으로 다시 지정"
+                txt += "\n⚠ 경험치 숫자를 못 읽고 있어요 → 자동으로 다시 찾는 중 (안 되면 [자동찾기])"
             elif not exp.running:
                 txt += "   (일시정지)"
         exp_lbl.configure(text=txt)
@@ -2933,9 +3273,11 @@ def run_app():
             save_config(cfg)
             exp_update()
 
-    ebtn("메소", lambda: select_region("meso_region"))
     ebtn("레벨", exp_ask_level)
-    ebtn("영역", lambda: select_region("exp_region"))
+    _auto_btn = ebtn("자동찾기", lambda: hud_locate(silent=False))
+    # 자동으로 못 찾을 때만: 오른쪽 클릭 = 경험치 줄 직접 드래그, Shift+오른쪽 클릭 = 메소 직접 드래그
+    _auto_btn.bind("<Button-3>", lambda e: select_region("exp_region"))
+    _auto_btn.bind("<Shift-Button-3>", lambda e: select_region("meso_region"))
     ebtn("리셋", exp_reset)
     exp_go = ebtn("▶ 측정", exp_toggle, "#2f9e44")
 
@@ -3657,6 +3999,8 @@ def run_app():
 
     if cfg.get("exp_show"):
         exp_show(True)
+    if cfg.get("exp_auto", True):
+        root.after(3000, exp_auto_boot)   # 켜면 경험치·메소 자동 찾기 + 경험치 오르면 자동 측정
     root.after(1000, exp_tick)
     root.after(150, pump)
     root.mainloop()
