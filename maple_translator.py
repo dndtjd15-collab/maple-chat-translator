@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 88  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 89  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1173,23 +1173,50 @@ class ScreenOCR:
             return b[0] <= cx <= b[0] + b[2] and b[1] <= cy <= b[1] + b[3]
         cands = []
         for ws in self._rows(words):
-            for w in ws:
-                t = w[0].replace(".", ",")
-                if not re.fullmatch(r"\d{1,3}(?:,\d{3})+", t) or int(t.replace(",", "")) < 1000:
-                    continue
-                if any(inside(w, b) for b in exclude):
-                    continue
-                cands.append((len(ws), -w[2], w))   # 줄에 혼자 있는 숫자 우선
+            row_txt = " ".join(x[0] for x in ws)
+            has_label = bool(re.search(r"m[e3]s[o0]s", row_txt, re.I))
+            # 숫자가 '2, 057, 064' 처럼 여러 단어로 쪼개져 읽혀도 잡히게 줄 전체에서 찾음
+            for i in range(len(ws)):
+                for j in range(i, min(i + 4, len(ws))):
+                    part = ws[i:j + 1]
+                    t = re.sub(r"[^\d,.]", "", "".join(x[0] for x in part)).replace(".", ",").strip(",")
+                    if not re.fullmatch(r"\d{1,3}(?:,\d{3})+", t) or int(t.replace(",", "")) < 1000:
+                        continue
+                    if any(inside(x, b) for x in part for b in exclude):
+                        continue
+                    cands.append((0 if has_label else 1, len(ws), -len(t), part))
         if not cands:
             return None
-        cands.sort(key=lambda c: (c[0], c[1]))
-        w = cands[0][2]
-        return self._box([w], max(25, w[3] * 0.6), max(25, w[3] * 0.6), 5)
+        cands.sort(key=lambda c: c[:3])
+        part = cands[0][3]
+        hgt = max(x[4] for x in part)
+        return self._box(part, max(30, hgt * 3), max(20, hgt * 1.5), 5)
 
     def read_pickups(self, region):
         """오른쪽 아래 획득 메시지('Mesos를 얻었습니다 (+107)', 'EXP를 얻었습니다 (+122)')를 읽어서
         [(종류 'M'/'E', 숫자, y)] 위->아래 순서로."""
         img = self.grab(region)
+        best = []
+        for variant in ("raw",):
+            if variant == "white":
+                # 반투명 흰 글씨 + 배경(지하철 그림 등) -> 밝고 색 없는 픽셀만 검정 글씨로 남김
+                from PIL import ImageChops
+                r_, g_, b_ = img.convert("RGB").split()
+                mn = ImageChops.darker(ImageChops.darker(r_, g_), b_)
+                mx = ImageChops.lighter(ImageChops.lighter(r_, g_), b_)
+                bright = mn.point(lambda v: 255 if v >= 170 else 0)
+                gray = ImageChops.subtract(mx, mn).point(lambda v: 255 if v <= 40 else 0)
+                im2 = ImageChops.invert(ImageChops.multiply(bright, gray)).convert("RGB")
+            else:
+                im2 = img
+            got = self._pickup_lines(im2)
+            if len(got) > len(best):
+                best = got
+            if len(best) >= 2:
+                break
+        return best
+
+    def _pickup_lines(self, img):
         out = []
         for text, box, _ws in self._ocr(img, "en"):
             t = text.replace("（", "(").replace("）", ")")
@@ -1233,7 +1260,13 @@ class ScreenOCR:
                 out["exp"] = self.find_exp(more)
                 words += more
         if want_meso:
-            out["meso"] = self.find_meso(words, tuple(exclude) + ((out["exp"],) if out["exp"] else ()))
+            ex = tuple(b for b in exclude if b) + ((out["exp"],) if out["exp"] else ())
+            out["meso"] = self.find_meso(words, ex)
+            if out["meso"] is None:   # 인벤토리 숫자가 작아서 못 읽었으면 크게 다시
+                more = []
+                for a in areas:
+                    more += self.scan_words(a, 3.0)
+                out["meso"] = self.find_meso(more, ex)
         return out
 
     def _ocr(self, img, lang):
@@ -1917,6 +1950,7 @@ class PickupCounter:
     def reset(self):
         self.prev = []
         self.meso = 0
+        self.extra = 0           # 인벤토리 숫자를 못 읽는 동안 획득 메시지로 센 메소
         self.exp = 0
         self.empty = 0
         self.frames = 0
@@ -3069,14 +3103,16 @@ def run_app():
         b.pack(side="right", padx=2)
         return b
 
-    def meso_manual():
-        return bool(cfg.get("meso_manual") and cfg.get("meso_region"))
+    def meso_inv_ok():
+        """인벤토리 메소 숫자를 지금 잘 읽고 있는지 (제일 정확한 방법)."""
+        return bool(cfg.get("meso_region")) and meso.base is not None and meso.fails < 3
 
     def meso_val():
-        return meso.gained if meso_manual() else pick.meso
+        # 인벤토리 숫자(정확) + 인벤토리를 못 읽던 동안 획득 메시지로 센 것. 인벤토리를 한 번도 못 읽었으면 획득 메시지만.
+        return meso.gained + pick.extra if meso.base is not None else pick.meso
 
     def meso_rate(t):
-        return meso.rate(t) if meso_manual() else pick.rate(t)
+        return meso_val() / t * 3600 if t >= 20 else 0
 
     def pickup_region():
         """오른쪽 아래 획득 메시지 칸: 게임 창 기준 (못 찾으면 경험치 줄 기준)."""
@@ -3102,11 +3138,13 @@ def run_app():
                 if reg:
                     ents = ocr.read_pickups(reg)
                     new = pick.feed(ents)
+                    if new and not meso_inv_ok():
+                        pick.extra += sum(n for k, n, _y in new if k == "M")
                     if new:
                         dlog("PICKUP", ents, "new", new, "meso", pick.meso)
             except Exception as e:  # noqa: BLE001
                 dlog("PICKUP-ERR", repr(e))
-            time.sleep(max(0.3, 1.0 - (time.time() - t0)))
+            time.sleep(max(0.2, 0.6 - (time.time() - t0)))   # 메시지가 금방 흐려져서 자주 읽음
 
     def exp_write(kind):
         """exp_log.csv 에 한 줄 기록 (나중에 사냥터별 효율 비교용)."""
@@ -3139,7 +3177,7 @@ def run_app():
                 exp_state["raw"] = raw
                 dlog("EXP", raw, rd)
                 exp.feed(rd)
-                if meso_manual():
+                if cfg.get("meso_region"):
                     mraw, mv = exp_state["ocr"].read_number(cfg["meso_region"])
                     dlog("MESO", mraw, mv)
                     meso.feed(mv)
@@ -3150,6 +3188,11 @@ def run_app():
             # 경험치 줄을 계속 못 읽으면(창을 옮김·해상도 바뀜) 자동으로 다시 찾기
             if exp.fails >= 5 and now - exp_state["last_loc"] > 60:
                 hud_locate(silent=True, want_meso=False)
+            # 인벤토리 메소 칸이 없거나 못 읽으면(인벤토리를 옮김·닫음) 45초마다 다시 찾음
+            elif (not cfg.get("meso_region") or meso.fails >= 3) and not cfg.get("meso_manual") \
+                    and now - exp_state["last_meso_loc"] > 45:
+                exp_state["last_meso_loc"] = now
+                hud_locate(silent=True, want_exp=False, want_meso=True)
             time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
 
     def hud_locate(silent=False, want_exp=True, want_meso=False, then_start=False, then_arm=False):
@@ -3191,12 +3234,12 @@ def run_app():
                 cfg["meso_region"] = res["meso"]
                 if not exp.running:
                     meso.reset()
-                msg.append("메소(인벤토리)")
+                msg.append("인벤토리 메소")
             meso.fails = 0
         save_config(cfg)
         if msg:
             exp_show(True)
-            if not silent or "경험치 줄" in msg or "메소(인벤토리)" in msg:
+            if not silent or msg:
                 info("자동으로 찾았어요: " + ", ".join(msg) + f"  ({res.get('where', '')})")
         elif not silent:
             if res.get("err"):
@@ -3254,9 +3297,10 @@ def run_app():
             return
         exp_show(True)
         if not cfg.get("meso_manual") and cfg.pop("meso_region", None):
-            save_config(cfg)   # 예전에 드래그한 메소 칸은 안 씀 (메소는 획득 메시지로 셈)
+            save_config(cfg)   # 예전 메소 칸(채팅창에 잘못 잡힌 것 등)은 버리고 새로 찾음
         if cfg.get("exp_region"):
             exp_arm()
+            hud_locate(silent=True, want_exp=False, want_meso=True)
             return
         exp_state["boot_tries"] += 1
         hud_locate(silent=exp_state["boot_tries"] > 1, then_arm=True)
@@ -3343,11 +3387,8 @@ def run_app():
             txt = (f"⏱ {fmt_hms(t)}   " + (f"Lv{exp.level}  " if exp.level else "") + f"+{exp.gained_exp():,} ({exp.gained_pct:.2f}%)   "
                    f"시간당 {exp.rate():,.0f} ({exp.pct_rate():.1f}%)   레벨업까지 {fmt_eta(exp.eta_sec())}")
             txt += f"\n💰 메소 +{meso_val():,}   시간당 {meso_rate(t):,.0f}"
-            if meso_manual():
-                if exp.running and meso.fails >= 3:
-                    txt += "   ⚠ 인벤토리 메소 숫자를 못 읽어요"
-            elif exp.running and t > 120 and pick.meso == 0:
-                txt += "   (오른쪽 아래 'Mesos를 얻었습니다' 메시지를 읽는 중 — 번역기 창이 가리지 않게 해 주세요)"
+            if exp.running and not meso_inv_ok():
+                txt += "   (인벤토리를 열어 두면 더 정확해요 — 지금은 획득 메시지로 세는 중)"
             if exp.levelups:
                 txt += f"   🎉 레벨업 {exp.levelups}번"
             if exp.running and exp.fails >= 3:
