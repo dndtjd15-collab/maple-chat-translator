@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 92  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 93  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1282,7 +1282,7 @@ class ScreenOCR:
                 img = self.grab(a)
             finally:
                 self.upscale = old
-            boxes = self._white_boxes(img)
+            boxes = self._white_boxes(img, min_w=110, max_w=230, min_h=8, max_h=15)
             dlog("MESO-BOX-CANDS", boxes[:8])
             for bx, by, bw, bh in boxes:
                 reg = [int(a[0] + bx - 2), int(a[1] + by - 3), int(bw + 4), int(bh + 6)]
@@ -1293,7 +1293,8 @@ class ScreenOCR:
                 except Exception:  # noqa: BLE001
                     continue
                 dlog("MESO-BOX-TRY", reg, txt, v)
-                if v is not None and re.search(r"\d", txt or ""):
+                # 진짜 메소 칸이면 '1,968,303' 처럼 쉼표 있는 큰 숫자 (번역기 창·퀘스트 숫자 '302' 같은 건 거름)
+                if v is not None and (v >= 1000 or re.search(r"\d,\d{3}", txt or "")):
                     return reg
         return None
 
@@ -3209,8 +3210,11 @@ def run_app():
                 if reg:
                     ents = ocr.read_pickups(reg)
                     new = pick.feed(ents)
-                    if new and not meso_inv_ok():
-                        pick.extra += sum(n for k, n, _y in new if k == "M")
+                    got = sum(n for k, n, _y in new if k == "M") if new else 0
+                    if got and not meso_inv_ok():
+                        pick.extra += got
+                    if got and cfg.get("meso_region"):
+                        exp_state["pick_unmatched"] = exp_state.get("pick_unmatched", 0) + 1
                     if new:
                         dlog("PICKUP", ents, "new", new, "meso", pick.meso)
             except Exception as e:  # noqa: BLE001
@@ -3251,7 +3255,17 @@ def run_app():
                 if cfg.get("meso_region"):
                     mraw, mv = exp_state["ocr"].read_number(cfg["meso_region"])
                     dlog("MESO", mraw, mv)
+                    before = meso.base
                     meso.feed(mv)
+                    if meso.base != before:
+                        exp_state["pick_unmatched"] = 0
+                    # 메소를 4번 넘게 주웠는데 읽는 숫자가 안 바뀜 -> 엉뚱한 곳을 읽는 중 -> 버리고 다시 찾기
+                    if exp_state.get("pick_unmatched", 0) >= 4 and not cfg.get("meso_manual"):
+                        dlog("MESO-WRONG-REGION", cfg.get("meso_region"), mraw)
+                        exp_state["pick_unmatched"] = 0
+                        cfg.pop("meso_region", None)
+                        save_config(cfg)
+                        meso.reset()
             except Exception as e:  # noqa: BLE001
                 dlog("EXP-ERR", repr(e))
                 exp.feed(None)
@@ -3273,13 +3287,17 @@ def run_app():
         exp_state["locating"] = True
         if want_exp:
             exp_state["last_loc"] = time.time()
+        try:   # 번역기 창 자신은 제외 (입력칸·숫자를 메소 칸으로 잘못 잡던 문제)
+            me = [root.winfo_rootx(), root.winfo_rooty(), root.winfo_width(), root.winfo_height()]
+        except Exception:  # noqa: BLE001
+            me = None
 
         def work():
             res = {}
             try:
                 if exp_state["loc"] is None:
                     exp_state["loc"] = ScreenOCR("en", 1.0)
-                ex = [cfg.get("region")] + ([cfg.get("exp_region")] if not want_exp else [])
+                ex = [cfg.get("region"), me] + ([cfg.get("exp_region")] if not want_exp else [])
                 res = exp_state["loc"].find_hud(want_exp, want_meso, exclude=ex)
             except Exception as e:  # noqa: BLE001
                 dlog("HUD-ERR", repr(e))

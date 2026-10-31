@@ -1,6 +1,6 @@
 {
-  "version": 92,
-  "note": "번역 점검: 대괄호 안 금액([hair 50k]의 k가 '오케이'로 번역되던 문제) 수정, ThrowStar·PermNx·lnkWash·Dark Guardian·전사의 물약·장마(MGC ATK) 등 용어 추가",
+  "version": 93,
+  "note": "메소 측정 수정: 번역기 창·퀘스트 숫자(302 등)를 메소 칸으로 잘못 잡던 문제 — 번역기 창 제외, 1,000 이상 쉼표 숫자만 인정, 메소를 주웠는데 숫자가 안 바뀌면 자동으로 다시 찾기",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
