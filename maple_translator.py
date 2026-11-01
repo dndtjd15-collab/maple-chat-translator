@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 93  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 94  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1310,6 +1310,10 @@ class ScreenOCR:
                 areas = [(d["left"], d["top"], d["width"], d["height"]) for d in m.monitors[1:]] or \
                         [(m.monitors[0]["left"], m.monitors[0]["top"], m.monitors[0]["width"], m.monitors[0]["height"])]
         out = {"exp": None, "meso": None, "where": where}
+        if want_meso and not want_exp:
+            # 메소 칸만 다시 찾을 때는 가벼운 그림 검사만 (인벤토리를 닫아 둔 동안 화면 전체 글자 인식을 반복하지 않게)
+            out["meso"] = self.find_meso_box(areas, tuple(b for b in exclude if b))
+            return out
         words = []
         for a in areas:
             words += self.scan_words(a, 2.0)
@@ -1950,6 +1954,58 @@ def parse_exp(text):
         if nums:
             cur = nums[-1]
     return {"cur": cur, "need": need, "pct": pct}
+
+
+_EXP_AMBIG = {"S": "56", "s": "56", "e": "68", "E": "68", "G": "6", "b": "6", "Z": "2", "z": "2", "I": "1", "l": "1",
+              "|": "1", "i": "1", "!": "1", "O": "0", "o": "0", "D": "0", "Q": "0", "B": "8", "g": "9", "q": "9",
+              "A": "4", "T": "7"}
+_EXP_CH = "0-9" + re.escape("".join(_EXP_AMBIG))
+_EXP_PAIR_RE = re.compile(r"([" + _EXP_CH + r"][" + _EXP_CH + r",.\-\s]{2,12}?)\s*[\[(tc]?\s*([" + _EXP_CH +
+                          r"]{1,2})[.,]([" + _EXP_CH + r"]{2})(?![" + _EXP_CH + r"])")
+
+
+def _exp_expand(tok, limit=128):
+    """'S2s' -> ['525', '526', '625', '626'] (OCR 이 헷갈리는 글자를 가능한 숫자로 모두 펼침)."""
+    outs = [""]
+    for ch in tok:
+        opts = ch if ch.isdigit() else _EXP_AMBIG.get(ch, "")
+        if not opts:
+            continue
+        outs = [o + d for o in outs for d in opts][:limit]
+    return outs
+
+
+def resolve_exp(raw, level_hint=None):
+    """경험치 글자를 숫자로 확정: 'EXP S2s,181 [SS.SI%]' 처럼 5/6 이 S 로 읽혀도
+    '현재 경험치 ÷ 레벨별 필요 경험치 = 퍼센트' 가 맞는 조합만 고름. -> {"cur","need","pct","level"} 또는 None"""
+    if not raw:
+        return None
+    best = None
+    # 레벨을 알면 그 근처만 (모든 레벨을 다 보면 우연히 맞는 엉뚱한 조합이 생김)
+    levels = range(max(1, level_hint - 3), min(len(EXP_TABLE), level_hint + 6)) if level_hint else range(1, len(EXP_TABLE))
+    for seg in raw.split(" / "):
+        seg = re.sub(r"^.*?EXP\.?\s*", "", seg, flags=re.I) if re.search(r"EXP", seg, re.I) else seg
+        for m in _EXP_PAIR_RE.finditer(seg):
+            cur_tok = re.sub(r"[,.\-\s]", "", m.group(1))
+            if len(cur_tok) < 3 or len(cur_tok) > 10:
+                continue
+            curs = {int(x) for x in _exp_expand(cur_tok) if x}
+            pcts = {float(a + "." + b) for a in _exp_expand(m.group(2), 16) for b in _exp_expand(m.group(3), 16)
+                    if a and b and float(a + "." + b) < 100}
+            for c in curs:
+                for lv in levels:
+                    need = EXP_TABLE[lv]
+                    if not need or c >= need:
+                        continue
+                    real = c * 100 / need
+                    for pc in pcts:
+                        if abs(real - pc) <= 0.011:
+                            score = (0 if level_hint and lv == level_hint else 1 if level_hint and abs(lv - level_hint) <= 3 else 2)
+                            if best is None or score < best[0]:
+                                best = (score, {"cur": c, "need": need, "pct": real, "level": lv})
+        if best and best[0] == 0:
+            break
+    return best[1] if best else None
 
 
 def parse_meso(text):
@@ -3219,7 +3275,7 @@ def run_app():
                         dlog("PICKUP", ents, "new", new, "meso", pick.meso)
             except Exception as e:  # noqa: BLE001
                 dlog("PICKUP-ERR", repr(e))
-            time.sleep(max(0.2, 0.6 - (time.time() - t0)))   # 메시지가 금방 흐려져서 자주 읽음
+            time.sleep(max(0.15, 0.4 - (time.time() - t0)))   # 메시지가 금방 흐려져서 자주 읽음
 
     def exp_write(kind):
         """exp_log.csv 에 한 줄 기록 (나중에 사냥터별 효율 비교용)."""
@@ -3250,6 +3306,18 @@ def run_app():
             try:
                 raw, rd = exp_state["ocr"].read_exp(cfg["exp_region"])
                 exp_state["raw"] = raw
+                rr = resolve_exp(raw, exp.level)
+                if rr:
+                    # 숫자와 퍼센트가 서로 맞는 조합 -> 이걸 믿음. 레벨도 여기서 바로잡음 (레벨업을 놓쳐도)
+                    if rr["level"] != exp.level:
+                        exp_state["lv_votes"] = exp_state.get("lv_votes", [])[-4:] + [rr["level"]]
+                        if exp_state["lv_votes"].count(rr["level"]) >= 3:
+                            dlog("EXP-LEVEL-FIX", exp.level, "->", rr["level"])
+                            exp.set_level(rr["level"])
+                            exp_state["lv_votes"] = []
+                    else:
+                        exp_state["lv_votes"] = []
+                    rd = {"cur": rr["cur"], "need": rr["need"] if rr["level"] == exp.level else None, "pct": rr["pct"]}
                 dlog("EXP", raw, rd)
                 exp.feed(rd)
                 if cfg.get("meso_region"):
@@ -3275,7 +3343,7 @@ def run_app():
                 hud_locate(silent=True, want_meso=False)
             # 인벤토리 메소 칸이 없거나 못 읽으면(인벤토리를 옮김·닫음) 45초마다 다시 찾음
             elif (not cfg.get("meso_region") or meso.fails >= 3) and not cfg.get("meso_manual") \
-                    and now - exp_state["last_meso_loc"] > 45:
+                    and now - exp_state["last_meso_loc"] > 20:
                 exp_state["last_meso_loc"] = now
                 hud_locate(silent=True, want_exp=False, want_meso=True)
             time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
@@ -3328,7 +3396,9 @@ def run_app():
         save_config(cfg)
         if msg:
             exp_show(True)
-            if not silent or msg:
+            key = ",".join(msg)
+            if not silent or time.time() - exp_state.get("found_msg", {}).get(key, 0) > 600:   # 같은 알림은 10분에 한 번만
+                exp_state.setdefault("found_msg", {})[key] = time.time()
                 info("자동으로 찾았어요: " + ", ".join(msg) + f"  ({res.get('where', '')})")
         elif not silent:
             if res.get("err"):
@@ -3360,7 +3430,8 @@ def run_app():
                     if ocr is None:
                         ocr = ScreenOCR("en", 3.0)
                     _raw, rd = ocr.read_exp(cfg["exp_region"])
-                    p = rd.get("pct") if rd else None
+                    rr = resolve_exp(_raw, exp.level or cfg.get("exp_level"))
+                    p = rr["pct"] if rr else (rd.get("pct") if rd else None)
                     if p is None:
                         bad += 1
                         if bad >= 5 and time.time() - exp_state["last_loc"] > 60:
