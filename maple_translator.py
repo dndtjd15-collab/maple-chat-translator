@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 94  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 95  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1975,14 +1975,17 @@ def _exp_expand(tok, limit=128):
     return outs
 
 
-def resolve_exp(raw, level_hint=None):
+def resolve_exp(raw, level_hint=None, only_levels=None):
     """경험치 글자를 숫자로 확정: 'EXP S2s,181 [SS.SI%]' 처럼 5/6 이 S 로 읽혀도
     '현재 경험치 ÷ 레벨별 필요 경험치 = 퍼센트' 가 맞는 조합만 고름. -> {"cur","need","pct","level"} 또는 None"""
     if not raw:
         return None
     best = None
     # 레벨을 알면 그 근처만 (모든 레벨을 다 보면 우연히 맞는 엉뚱한 조합이 생김)
-    levels = range(max(1, level_hint - 3), min(len(EXP_TABLE), level_hint + 6)) if level_hint else range(1, len(EXP_TABLE))
+    if only_levels:
+        levels = [lv for lv in only_levels if 0 < lv < len(EXP_TABLE)]
+    else:
+        levels = range(max(1, level_hint - 3), min(len(EXP_TABLE), level_hint + 6)) if level_hint else range(1, len(EXP_TABLE))
     for seg in raw.split(" / "):
         seg = re.sub(r"^.*?EXP\.?\s*", "", seg, flags=re.I) if re.search(r"EXP", seg, re.I) else seg
         for m in _EXP_PAIR_RE.finditer(seg):
@@ -3306,18 +3309,30 @@ def run_app():
             try:
                 raw, rd = exp_state["ocr"].read_exp(cfg["exp_region"])
                 exp_state["raw"] = raw
-                rr = resolve_exp(raw, exp.level)
-                if rr:
-                    # 숫자와 퍼센트가 서로 맞는 조합 -> 이걸 믿음. 레벨도 여기서 바로잡음 (레벨업을 놓쳐도)
-                    if rr["level"] != exp.level:
-                        exp_state["lv_votes"] = exp_state.get("lv_votes", [])[-4:] + [rr["level"]]
-                        if exp_state["lv_votes"].count(rr["level"]) >= 3:
-                            dlog("EXP-LEVEL-FIX", exp.level, "->", rr["level"])
-                            exp.set_level(rr["level"])
-                            exp_state["lv_votes"] = []
-                    else:
-                        exp_state["lv_votes"] = []
-                    rd = {"cur": rr["cur"], "need": rr["need"] if rr["level"] == exp.level else None, "pct": rr["pct"]}
+                # 1) 레벨을 아는 경우: 5/6 이 S 로 읽혀도 '숫자 ÷ 이 레벨 필요경험치 = 퍼센트' 가 맞는 조합으로 확정
+                #    (지금 레벨과 다음 레벨만 봄 -> 엉뚱한 레벨로 튀지 않게)
+                rr = resolve_exp(raw, exp.level, only_levels=[exp.level, exp.level + 1]) if exp.level else None
+                if rr and rr["level"] == exp.level:
+                    rd = {"cur": rr["cur"], "need": rr["need"], "pct": rr["pct"]}
+                # 2) 레벨 바로잡기: 글자가 깨끗하게 읽힌 값(숫자·퍼센트 3% 이상)으로만, 서로 다른 경험치 3번이 같은 레벨을 가리킬 때
+                clean = re.search(r"(\d{1,3}(?:,\d{3})+|\d{4,})\s*[\[(]?\s*(\d{1,2}\.\d{2})\s*%", raw or "")
+                if clean:
+                    c_ = int(clean.group(1).replace(",", ""))
+                    p_ = float(clean.group(2))
+                    if p_ >= 3 and c_ >= 1000:
+                        est = c_ * 100 / p_
+                        lv_ = next((i for i in range(1, len(EXP_TABLE))
+                                    if EXP_TABLE[i] and abs(EXP_TABLE[i] - est) <= EXP_TABLE[i] * 0.006), None)
+                        if lv_:
+                            votes = [v for v in exp_state.get("lv_votes", []) if v[0] == lv_ and v[1] != c_][-4:]
+                            exp_state["lv_votes"] = votes + [(lv_, c_)]
+                            if lv_ != exp.level and len(exp_state["lv_votes"]) >= 3:
+                                dlog("EXP-LEVEL-FIX", exp.level, "->", lv_, exp_state["lv_votes"])
+                                exp.set_level(lv_)
+                                if not exp.levelups:   # 이번 측정 중 레벨업이 없었으면 틀린 레벨로 센 경험치도 다시 계산
+                                    exp.gained = int(round(exp.need * exp.gained_pct / 100))
+                                    exp.unpriced = 0.0
+                                exp_state["lv_votes"] = []
                 dlog("EXP", raw, rd)
                 exp.feed(rd)
                 if cfg.get("meso_region"):
@@ -3430,7 +3445,8 @@ def run_app():
                     if ocr is None:
                         ocr = ScreenOCR("en", 3.0)
                     _raw, rd = ocr.read_exp(cfg["exp_region"])
-                    rr = resolve_exp(_raw, exp.level or cfg.get("exp_level"))
+                    _lv = exp.level or cfg.get("exp_level")
+                    rr = resolve_exp(_raw, _lv, only_levels=[_lv, _lv + 1] if _lv else None)
                     p = rr["pct"] if rr else (rd.get("pct") if rd else None)
                     if p is None:
                         bad += 1
