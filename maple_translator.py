@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 95  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 96  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1956,7 +1956,7 @@ def parse_exp(text):
     return {"cur": cur, "need": need, "pct": pct}
 
 
-_EXP_AMBIG = {"S": "56", "s": "56", "e": "68", "E": "68", "G": "6", "b": "6", "Z": "2", "z": "2", "I": "1", "l": "1",
+_EXP_AMBIG = {"S": "569", "s": "569", "€": "6", "e": "68", "E": "68", "G": "6", "b": "6", "Z": "2", "z": "2", "I": "1", "l": "1",
               "|": "1", "i": "1", "!": "1", "O": "0", "o": "0", "D": "0", "Q": "0", "B": "8", "g": "9", "q": "9",
               "A": "4", "T": "7"}
 _EXP_CH = "0-9" + re.escape("".join(_EXP_AMBIG))
@@ -2009,6 +2009,17 @@ def resolve_exp(raw, level_hint=None, only_levels=None):
         if best and best[0] == 0:
             break
     return best[1] if best else None
+
+
+def exp_pct_candidates(raw):
+    """'so.S9%' 처럼 깨진 퍼센트 글자에서 가능한 퍼센트 값들 (9·5·6 이 s 로 읽히는 경우)."""
+    out = set()
+    for m in re.finditer(r"(?<![" + _EXP_CH + r"])([" + _EXP_CH + r"]{1,2})\s?[.,]\s?([" + _EXP_CH + r"]{2})\s*[%)\]+/]", raw or ""):
+        for a in _exp_expand(m.group(1), 16):
+            for b in _exp_expand(m.group(2), 16):
+                if a and b and float(a + "." + b) < 100:
+                    out.add(float(a + "." + b))
+    return out
 
 
 def parse_meso(text):
@@ -2111,6 +2122,205 @@ class PickupCounter:
 
     def rate(self, seconds):
         return self.meso / seconds * 3600 if seconds >= 20 else 0
+
+
+EXP_GLYPH_PATH = os.path.join(APP_DIR, "exp_glyphs.json")
+# 게임 상태바 경험치 숫자(픽셀 글꼴) 모양 -> 글자. 스크린샷에서 뽑은 것. 0 은 처음 보이면 자동으로 배움.
+EXP_GLYPH_SEED = {
+    '#####/#..../#..../.###./....#/#...#/.###.': '5',
+    '.###./#...#/....#/...#./..#../.#.../#####': '2',
+    '.###./#...#/#...#/.###./#...#/#...#/.###.': '8',
+    '.###./#...#/#...#/.####/....#/#...#/.###.': '9',
+    '.###./#...#/#..../####./#...#/#...#/.###.': '6',
+    '.#....#/#.#..#./.#..#../...#.../..#..#./.#..#.#/#....#.': '%',
+    '...#./..##./.#.#./#..#./#####/...#./...#.': '4',
+    '.#/##/.#/.#/.#/.#/.#': '1',
+    '#####/....#/....#/....#/...#./..#../..#..': '7',
+    '.###./#...#/....#/..##./....#/#...#/.###.': '3',
+}
+
+
+class ExpGlyphReader:
+    """경험치 숫자를 OCR 없이 '글자 모양 그대로 비교'해서 읽음 (픽셀 글꼴이라 매번 똑같이 그려짐 -> 오독 없음).
+    모르는 모양은 OCR 이 깨끗하게 읽은 순간에 배워서 exp_glyphs.json 에 저장."""
+
+    def __init__(self, path=EXP_GLYPH_PATH):
+        self.path = path
+        self.map = dict(EXP_GLYPH_SEED)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                self.map.update(json.load(f))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def save(self):
+        try:
+            learned = {k: v for k, v in self.map.items() if EXP_GLYPH_SEED.get(k) != v}
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump(learned, f, ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _mask(img, thr=230):
+        img = img.convert("RGB")
+        W, H = img.size
+        data = img.load()
+        return [[1 if min(data[x, y]) >= thr else 0 for x in range(W)] for y in range(H)]
+
+    @classmethod
+    def blocks(cls, img):
+        """흰 글씨 줄 덩어리마다 글자 조각 목록 (경험치 줄이 아닌 흰 물체가 위에 있어도 줄마다 따로 시도)."""
+        m = cls._mask(img)
+        rows = [sum(r) for r in m]
+        out, y = [], 0
+        while y < len(m):
+            if rows[y] >= 2:
+                segs, y_end = cls.segments(None, mask=m, y_start=y)
+                if segs:
+                    out.append(segs)
+                y = y_end + 1
+            else:
+                y += 1
+        return out
+
+    @classmethod
+    def segments(cls, img, mask=None, y_start=0):
+        """흰 글씨(255)만 남겨 글자 조각으로 자름 -> ([(x0, x1, top, bottom, 모양키, 종류)], 끝난 줄)."""
+        from collections import Counter
+        m = mask if mask is not None else cls._mask(img)
+        H = len(m)
+        W = len(m[0]) if H else 0
+        rows = [sum(r) for r in m]
+        y0 = next((y for y in range(y_start, H) if rows[y] >= 2), None)
+        if y0 is None:
+            return [], H
+        y1 = y0
+        while y1 + 1 < H and rows[y1 + 1] > 0:
+            y1 += 1
+        cols = [sum(m[y][x] for y in range(y0, y1 + 1)) for x in range(W)]
+        segs = []
+        x = 0
+        while x < W:
+            if cols[x]:
+                xs = x
+                while x < W and cols[x]:
+                    x += 1
+                ys = [y for y in range(y0, y1 + 1) if any(m[y][xx] for xx in range(xs, x))]
+                top, bot = min(ys), max(ys)
+                key = "/".join("".join("#" if m[y][xx] else "." for xx in range(xs, x)) for y in range(top, bot + 1))
+                segs.append([xs, x, top, bot, key])
+            else:
+                x += 1
+        tops = Counter(sg[2] for sg in segs if sg[3] - sg[2] >= 4)
+        if not tops:
+            return [], y1
+        dtop = max(tops.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        out = []
+        for xs, xe, top, bot, key in segs:
+            kind = "label" if top < dtop else ("sep" if bot - top <= 3 else "glyph")
+            out.append((xs, xe, top, bot, key, kind))
+        return out, y1
+
+    @staticmethod
+    def _groups(segs):
+        """숫자 묶음 나누기: 경험치 숫자 / [퍼센트%] (사이에 초록 괄호가 있어서 틈이 큼)."""
+        body = [sg for sg in segs if sg[5] != "label"]
+        groups, cur = [], []
+        for i, sg in enumerate(body):
+            if cur and sg[0] - body[i - 1][1] >= 5:
+                groups.append(cur)
+                cur = []
+            cur.append(sg)
+        if cur:
+            groups.append(cur)
+        return [[sg for sg in g if sg[5] == "glyph"] for g in groups]
+
+    def read(self, img):
+        """-> {"cur": int, "pct": float} 또는 None (모르는 모양이 있으면 None)."""
+        for segs in self.blocks(img):
+            r = self._read_segs(segs)
+            if r:
+                return r
+        return None
+
+    def _read_segs(self, segs):
+        groups = [g for g in self._groups(segs) if g]
+        if len(groups) < 2:
+            return None
+        # '%' 로 끝나는 묶음 = 퍼센트, 그 앞 묶음 = 경험치 (오른쪽에 CASH SHOP 같은 다른 흰 글씨가 있어도 안 헷갈리게)
+        idx = next((i for i in range(1, len(groups)) if self.map.get(groups[i][-1][4]) == "%"), len(groups) - 1)
+        g_cur, g_pct = groups[idx - 1], groups[idx]
+        unknown = {sg[4] for sg in g_cur + g_pct if sg[4] not in self.map}
+        if len(unknown) == 1 and "0" not in self.map.values():
+            # 모르는 모양이 딱 하나 + 다른 숫자와 크기가 같고 + 아직 0 을 모름 -> 0 으로 배움
+            k = next(iter(unknown))
+            sample = next(sg for sg in g_cur + g_pct if sg[4] == k)
+            dims = {(sg[1] - sg[0], sg[3] - sg[2]) for sg in g_cur + g_pct if self.map.get(sg[4], "").isdigit()
+                    and self.map.get(sg[4]) != "1"}
+            if (sample[1] - sample[0], sample[3] - sample[2]) in dims:
+                trial = dict(self.map)
+                trial[k] = "0"
+                r = self._decode(g_cur, g_pct, trial)
+                if r:   # 0 으로 넣었더니 '경험치 ÷ 레벨 필요경험치 = 퍼센트' 가 맞음 -> 확정
+                    self.map[k] = "0"
+                    self.save()
+                    dlog("EXP-GLYPH-LEARN-0", k, r)
+                    return r
+            return None
+        if unknown:
+            return None
+        return self._decode(g_cur, g_pct, self.map)
+
+    @staticmethod
+    def _decode(g_cur, g_pct, mp):
+        if any(sg[4] not in mp for sg in g_cur + g_pct):
+            return None
+        cs = "".join(mp[sg[4]] for sg in g_cur)
+        ps = "".join(mp[sg[4]] for sg in g_pct)
+        if not cs.isdigit() or not ps.endswith("%") or len(ps) < 4 or not ps[:-1].isdigit():
+            return None
+        digits = ps[:-1]
+        pct = float(digits[:-2] + "." + digits[-2:])
+        cur = int(cs)
+        if pct >= 100:
+            return None
+        # 마지막 확인: 어떤 레벨이든 '경험치 ÷ 필요경험치 = 퍼센트' 가 맞아야 믿음
+        lv = next((i for i in range(1, len(EXP_TABLE)) if EXP_TABLE[i] and cur < EXP_TABLE[i]
+                   and abs(cur * 100 / EXP_TABLE[i] - pct) <= 0.011), None)
+        if lv is None:
+            return None
+        return {"cur": cur, "pct": pct, "level": lv, "need": EXP_TABLE[lv]}
+
+    def learn(self, img, cur_str, pct_str):
+        """OCR 이 깨끗하게 읽은 값(예: '760102', '91.26')으로 모르는 모양을 배움."""
+        for segs in self.blocks(img):
+            if self._learn_segs(segs, cur_str, pct_str):
+                return True
+        return False
+
+    def _learn_segs(self, segs, cur_str, pct_str):
+        groups = [g for g in self._groups(segs) if g]
+        if len(groups) < 2:
+            return False
+        idx = next((i for i in range(1, len(groups)) if self.map.get(groups[i][-1][4]) == "%"), len(groups) - 1)
+        groups = groups[:idx + 1]
+        want = list(cur_str) + list(pct_str.replace(".", "")) + ["%"]
+        have = groups[-2] + groups[-1]
+        if len(have) != len(want):
+            return False
+        new = {}
+        for sg, ch in zip(have, want):
+            old = self.map.get(sg[4]) or new.get(sg[4])
+            if old and old != ch:
+                return False   # 앞뒤가 안 맞음 -> 안 배움
+            new[sg[4]] = ch
+        added = {k: v for k, v in new.items() if k not in self.map}
+        if added:
+            self.map.update(added)
+            self.save()
+            dlog("EXP-GLYPH-LEARN", added)
+        return True
 
 
 class ExpTracker:
@@ -3216,6 +3426,21 @@ def run_app():
     exp = ExpTracker()
     meso = MesoTracker()
     pick = PickupCounter()
+    glyphs = ExpGlyphReader()
+
+    def exp_grab_wide(ocr, region):
+        """경험치 영역을 조금 넓게(위아래·오른쪽) 원래 크기로 캡처 -> 글자 모양 비교용."""
+        if not region:
+            return None
+        x, y, w, h = region
+        old = ocr.upscale
+        ocr.upscale = 1
+        try:
+            return ocr.grab((x - 8, y - 8, w + 60, h + 16))
+        except Exception:  # noqa: BLE001
+            return None
+        finally:
+            ocr.upscale = old
     exp_state = {"thread": None, "raw": "", "last_log": 0.0, "seg_map": None, "seg_party": None,
                  "ocr": None, "shown": False, "loc": None, "locating": False, "last_loc": 0.0,
                  "last_meso_loc": 0.0, "armed": False, "boot_tries": 0,
@@ -3306,19 +3531,41 @@ def run_app():
     def exp_loop(gen):
         while exp.running and exp_state["gen"] == gen:
             t0 = time.time()
+            fast = False
             try:
-                raw, rd = exp_state["ocr"].read_exp(cfg["exp_region"])
+                # 0) 글자 모양 비교로 읽기 (OCR 아님 -> 오독 없음, 빠름). 실패할 때만 OCR
+                gimg = exp_grab_wide(exp_state["ocr"], cfg["exp_region"])
+                gr = glyphs.read(gimg) if gimg is not None else None
+                if gr:
+                    fast = True
+                    raw = f"EXP {gr['cur']:,} {gr['pct']:.2f}%]"
+                    rd = {"cur": gr["cur"], "need": gr["need"] if gr["level"] == exp.level else None, "pct": gr["pct"]}
+                else:
+                    raw, rd = exp_state["ocr"].read_exp(cfg["exp_region"])
                 exp_state["raw"] = raw
                 # 1) 레벨을 아는 경우: 5/6 이 S 로 읽혀도 '숫자 ÷ 이 레벨 필요경험치 = 퍼센트' 가 맞는 조합으로 확정
                 #    (지금 레벨과 다음 레벨만 봄 -> 엉뚱한 레벨로 튀지 않게)
                 rr = resolve_exp(raw, exp.level, only_levels=[exp.level, exp.level + 1]) if exp.level else None
-                if rr and rr["level"] == exp.level:
+                if fast:
+                    pass
+                elif rr and rr["level"] == exp.level:
                     rd = {"cur": rr["cur"], "need": rr["need"], "pct": rr["pct"]}
+                elif exp.last is not None and (not rd or rd.get("pct") is None or abs(rd["pct"] - exp.last["pct"]) > 1.0):
+                    # 숫자를 못 읽었어도 퍼센트 후보 중 직전 값에서 이어지는 것(0~1% 상승)이 있으면 그걸 씀
+                    lp = exp.last["pct"]
+                    near = [p for p in exp_pct_candidates(raw) if -0.03 <= p - lp <= 1.0]
+                    if near:
+                        rd = {"cur": None, "need": None, "pct": min(near, key=lambda p: abs(p - lp - 0.03))}
                 # 2) 레벨 바로잡기: 글자가 깨끗하게 읽힌 값(숫자·퍼센트 3% 이상)으로만, 서로 다른 경험치 3번이 같은 레벨을 가리킬 때
                 clean = re.search(r"(\d{1,3}(?:,\d{3})+|\d{4,})\s*[\[(]?\s*(\d{1,2}\.\d{2})\s*%", raw or "")
                 if clean:
                     c_ = int(clean.group(1).replace(",", ""))
                     p_ = float(clean.group(2))
+                    # OCR 이 깨끗하게 읽고 레벨표와도 맞으면 -> 그 화면으로 글자 모양을 배움 (다음부터 OCR 없이 읽게)
+                    if not fast and gimg is not None and any(
+                            EXP_TABLE[i] and c_ < EXP_TABLE[i] and abs(c_ * 100 / EXP_TABLE[i] - p_) <= 0.011
+                            for i in range(1, len(EXP_TABLE))):
+                        glyphs.learn(gimg, str(c_), clean.group(2))
                     if p_ >= 3 and c_ >= 1000:
                         est = c_ * 100 / p_
                         lv_ = next((i for i in range(1, len(EXP_TABLE))
@@ -3333,7 +3580,7 @@ def run_app():
                                     exp.gained = int(round(exp.need * exp.gained_pct / 100))
                                     exp.unpriced = 0.0
                                 exp_state["lv_votes"] = []
-                dlog("EXP", raw, rd)
+                dlog("EXP-G" if fast else "EXP", raw, rd)
                 exp.feed(rd)
                 if cfg.get("meso_region"):
                     mraw, mv = exp_state["ocr"].read_number(cfg["meso_region"])
@@ -3361,7 +3608,8 @@ def run_app():
                     and now - exp_state["last_meso_loc"] > 20:
                 exp_state["last_meso_loc"] = now
                 hud_locate(silent=True, want_exp=False, want_meso=True)
-            time.sleep(max(0.5, float(cfg.get("exp_interval", 3)) - (time.time() - t0)))
+            # 글자 모양으로 읽힐 때는 가벼워서 1초마다, OCR 일 때는 3초마다
+            time.sleep(max(0.3, (1.0 if fast else float(cfg.get("exp_interval", 3))) - (time.time() - t0)))
 
     def hud_locate(silent=False, want_exp=True, want_meso=False, then_start=False, then_arm=False):
         """게임 화면에서 경험치 줄·메소 칸을 자동으로 찾아 저장 (드래그로 영역 지정할 필요 없음)."""
@@ -3444,7 +3692,12 @@ def run_app():
                 try:
                     if ocr is None:
                         ocr = ScreenOCR("en", 3.0)
-                    _raw, rd = ocr.read_exp(cfg["exp_region"])
+                    gi = exp_grab_wide(ocr, cfg["exp_region"])
+                    gr = glyphs.read(gi) if gi is not None else None
+                    if gr:
+                        _raw, rd = f"EXP {gr['cur']:,} {gr['pct']:.2f}%]", {"pct": gr["pct"], "cur": gr["cur"]}
+                    else:
+                        _raw, rd = ocr.read_exp(cfg["exp_region"])
                     _lv = exp.level or cfg.get("exp_level")
                     rr = resolve_exp(_raw, _lv, only_levels=[_lv, _lv + 1] if _lv else None)
                     p = rr["pct"] if rr else (rd.get("pct") if rd else None)
@@ -3463,7 +3716,7 @@ def run_app():
                             return
                 except Exception as e:  # noqa: BLE001
                     dlog("EXP-ARM-ERR", repr(e))
-                time.sleep(3)
+                time.sleep(1.5)
 
         threading.Thread(target=watch, daemon=True).start()
 
