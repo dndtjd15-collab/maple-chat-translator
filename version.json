@@ -1,6 +1,6 @@
 {
-  "version": 96,
-  "note": "경험치 측정을 OCR 대신 '글자 모양 비교'로 읽음 — 게임 픽셀 숫자를 그대로 대조해서 오독 없음, 1초마다 측정. 못 읽을 때만 OCR, OCR이 깨끗하게 읽은 순간 모양을 배워서 저장(exp_glyphs.json)",
+  "version": 97,
+  "note": "사전 보강: etc slot→기타창 확장 쿠폰, Pot Lid→냄비 뚜껑, junk nx→싼 캐시템, slots coupons/VVand/BIack 등 OCR 변형 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
