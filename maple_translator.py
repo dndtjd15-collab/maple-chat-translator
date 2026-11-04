@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 98  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 99  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -242,10 +242,17 @@ class Glossary:
         text = re.sub(r"(?<![A-Za-z0-9])0\s?ffer(?![A-Za-z])", "offer", text, flags=re.IGNORECASE)
         # '105 M Att' / '105M att' = 마력 105 (1억500만 금액으로 읽히던 문제) — 금액 처리보다 먼저
         text = re.sub(r"(?<![A-Za-z0-9.,])(\d{2,3})\s?M\.?\s?(?i:atk|att|attack)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text)
+        # OCR: 'Tobis 2mll' = 2mil (금액이 '2ml' 로 남던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s?m[lI1|][lI1|](?![A-Za-z])", r"\1mil", text)
+        # OCR: '1011-1k cape' / 'IOIuk' / '10uk' = 10luk (능력치 10운이 '1천' 금액으로 읽히던 문제)
+        text = re.sub(r"(?<![\d.,A-Za-z])1011-1k(?![A-Za-z0-9])", "10luk", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![A-Za-z0-9])[I1l][O0][I1l]?uk(?![A-Za-z])", "10luk", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z])(?:for|at)\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",
                       money, text, flags=re.IGNORECASE)
 
+        # '85k min.' -> 최소 8만5천 ('8만5천 분' 으로 번역되던 문제)
+        text = re.sub(r"(ZZ\d+QQ)\s*min(?:imum)?\.?(?![A-Za-z])", lambda m: hold("최소") + m.group(1), text, flags=re.IGNORECASE)
         # '97K LEFT' -> 9만7천 남음 ('왼쪽'으로 번역되던 문제)
         text = re.sub(r"(ZZ\d+QQ)\s*left(?![A-Za-z])", lambda m: m.group(1) + hold("남음"), text, flags=re.IGNORECASE)
         # 'lcicle 2ea 880k' -> 2개 (한 자리 숫자 + ea 는 수량)
@@ -296,6 +303,8 @@ class Glossary:
         # 'need 20 more' -> 20개 더 필요 ('20개 필요 더 보기' 로 번역되던 문제)
         text = re.sub(r"(?<![A-Za-z])need\s?(\d{1,2})(?![0-9A-Za-z%])(\s?more(?![A-Za-z]))?",
                       lambda m: hold(m.group(1) + ("개 더 필요" if m.group(2) else "개 필요")), text, flags=re.I)
+        # 'EACH 2 MORE' -> 2개 더 ('2 더보기' 로 번역되던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9.+])(\d{1,2})\s?more(?![A-Za-z])", lambda m: hold(m.group(1) + "개 더"), text, flags=re.I)
         text = re.sub(r"(?<![A-Za-z])(?:a\s)?(?:party|pt)\s?of\s?(\d)(?![0-9])", lambda m: hold(m.group(1) + "인 파티"), text, flags=re.I)
         # 'S dex6 250k B hat acc 20k' -> 줄 맨 앞이나 금액 바로 뒤의 홀로 쓴 S/B 는 팝니다/삽니다
         text = re.sub(r"^(\s*)([SB])\s(?=[A-Za-z]|\s*ZZ)", lambda m: m.group(1) + hold("[팝니다]" if m.group(2) == "S" else "[삽니다]") + " ", text)
@@ -348,6 +357,8 @@ class Glossary:
         out = re.sub(r"(\[(팝니다|삽니다|교환합니다|구합니다)\])(\s*,?\s*\1)+", r"\1", out)  # [팝니다] [팝니다] -> 하나로
         out = re.sub(r"\[\s+", "[", out)
         out = re.sub(r"\s+\]", "]", out)
+        out = re.sub(r"\(\s+", "(", out)  # '( 2개 더 )' -> '(2개 더)'
+        out = re.sub(r"\s+\)", ")", out)
         # 받침 있는 말 + '를' -> '을' ('시세 확인를', '가격를' 처럼 사전 용어 뒤 조사가 틀리던 문제)
         out = re.sub(r"([가-힣])를(?=[\s.,!?]|$)",
                      lambda m: m.group(1) + ("을" if (ord(m.group(1)) - 0xAC00) % 28 else "를"), out)

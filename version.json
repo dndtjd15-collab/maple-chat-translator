@@ -1,6 +1,6 @@
 {
-  "version": 98,
-  "note": "사전 보강: steely/illbis→강철·일비 표창, Oslot→0 업횟, OCR 변형(Mitte/Wtlite Label, H ALLOWEEN, OFFE R, RMO, IOCH, maket) 추가, cooked 등 슬랭",
+  "version": 99,
+  "note": "사전 보강: 10luk OCR 변형(1011-1k/IOIuk/10uk)이 '1천' 금액으로 읽히던 문제, 2mll→200만, 85k min→최소, N more→N개 더, PUDDet→인형, T0bis·Seroll 등",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
