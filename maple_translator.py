@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 97  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 98  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -3064,7 +3064,7 @@ AI_PROMPT = """너는 메이플스토리 클래식 월드(구버전 메이플, G
 - OCR이 글자를 깨뜨린 경우(예: "thats mor thần a." → "that's more than a ...")는 원래 문장을 추측해서 자연스럽게 번역해. (추정) 같은 표시나 "~의 오타로 보여서" 같은 설명은 절대 붙이지 말고 번역만 써. 도저히 알 수 없는 찌꺼기면 "번역 불가"라고만 써.
 - 일상 대화(잡담·농담·드립·감정 표현)는 메이플 하는 한국 친구가 단톡방에서 말하듯 자연스럽게 의역해:
   · 말투 세기를 그대로 살려: 장난이면 장난스럽게(ㅋㅋ, ㅎㅎ), 화내면 세게, 비꼬면 비꼬게, 정중하면 존댓말. 기본은 반말 게이머 말투.
-  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"/"the goat"/"GOAT"=개쩐다/최고, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ, "yo"=ㅎㅇ/야, "nth less"=그 이하로는 안 팜, "fielding offers"=가격 제안 받는 중, "quitting sale"=접어서 정리 판매, "i hate scrolling"=작하기 싫어.
+  · 직역하면 어색한 관용구·밈은 한국식 표현으로: "that's crazy"=미쳤다/ㄷㄷ, "no way"=에바/말도 안 돼, "my bad"/"mb"=내 탓/미안, "same"=ㄹㅇ 나도, "fair"=인정, "W"=개이득/굿, "L"=망했네/졌네, "ratio"=반박 ㅈㅈ, "touch grass"=밖에 좀 나가라, "skill issue"=실력 문제, "cope"=정신승리, "based"=소신 발언 ㄹㅇ, "cringe"=오글거려, "lowkey"=은근, "deadass"/"fr fr"/"no cap"=ㄹㅇ 진짜, "cap"(거짓말 의미일 때)=구라, "bet"=ㅇㅋ 콜, "slay"=찢었다, "goated"/"the goat"/"GOAT"=개쩐다/최고, "mid"(평가 의미일 때)=그저 그래, "sus"=수상한데, "rizz"=작업멘트, "ong"=진짜로, "idc"=상관없어, "ikr"=그니까, "smh"=어이없네, "wyd"=뭐해, "hbu/wbu"=너는?, "irl"=현실에서, "lmk"=알려줘, "ttyl"=나중에 얘기해, "bbl"=이따 올게, "gn"=잘 자, "ily"=사랑해(친구끼리 장난), "omg"=헐, "wtf"=뭐야 이게/뭔데, "ffs"=아 진짜, "istg"=진짜 맹세함, "idek"=나도 모르겠다, "mfw"=그때 내 표정, "kek"=ㅋㅋ, "yo"=ㅎㅇ/야, "nth less"=그 이하로는 안 팜, "fielding offers"=가격 제안 받는 중, "quitting sale"=접어서 정리 판매, "i hate scrolling"=작하기 싫어, "cooked"/"you're cooked"=망했다/끝났다, "fast forward"=빨리 감기(스킵), "till sold"=후 판매 마감.
   · 게이머 표현: "repot"/"repotting"=물약 사러 감, "scalper(s)"=되팔이, "bot check"=매크로 검사, "W me"/"whisp me"=귓 주세요, "inv me"=초대해줘, "pass (me) lead"=파티장 넘겨줘, "clicker"(파퀘)=클릭 담당, "famed you"=인기도 올려줬어, "baddie"=존예/예쁜 언니, "drip"(옷·외모 얘기일 때)=간지/패션, "who up"=누구 있음?, "anyone got X"=X 있는 사람?, "mega"/"smega"=확성기, "last smega"=마지막 확성기, "min"(스탯 뒤)=이상, "x left"=x개 남음, "for sale"=팝니다, "first come"/"fcfs"=선착순.
   · 주문서·강화 얘기: "60s"/"10s"/"30s"(주문서 얘기일 때)=60%/10%/30% 주문서, "bricked"/"boomed"=작 다 실패해서 템 망함(터짐), "skem"/"scam"=사기, "s/b"=시작가, "buy now"(파는 사람 문구)=지금 바로 사세요, "take this off my hands"/"take dis off my handz"=떨이로 넘겨요(빨리 처분), "poached"=자리 뺏김, "we're full"/"been full"=파티 꽉 찼어, "wsp"/"whisp"=귓 주세요.
   · 잡담 슬랭: "broke"(사람이)=돈 없음/거지, "bum"=거지, "no u"=너나 그래, "naur"=아니이, "deep pockets"=돈 많음, "trash"(애니·게임·작품 평가)=노잼/별로 (잡템 아님), "givvies"=나눔, "get in disc"=디코 들어와, "imsry"=미안. "gamba"=도박/뽑기, "dont make me cc"=채널 옮기게 하지 마, "too many pm(s)"=귓이 너무 많이 와요, "1st to top"=꼭대기 먼저 찍는 사람, "highest wins"=최고가 낙찰.

@@ -1,6 +1,6 @@
 {
-  "version": 97,
-  "note": "사전 보강: etc slot→기타창 확장 쿠폰, Pot Lid→냄비 뚜껑, junk nx→싼 캐시템, slots coupons/VVand/BIack 등 OCR 변형 추가",
+  "version": 98,
+  "note": "사전 보강: steely/illbis→강철·일비 표창, Oslot→0 업횟, OCR 변형(Mitte/Wtlite Label, H ALLOWEEN, OFFE R, RMO, IOCH, maket) 추가, cooked 등 슬랭",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
