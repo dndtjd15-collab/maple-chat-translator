@@ -1,6 +1,6 @@
 {
-  "version": 99,
-  "note": "사전 보강: 10luk OCR 변형(1011-1k/IOIuk/10uk)이 '1천' 금액으로 읽히던 문제, 2mll→200만, 85k min→최소, N more→N개 더, PUDDet→인형, T0bis·Seroll 등",
+  "version": 100,
+  "note": "번역 보강: 1m4→140만, 1.4MlL→140만, +511-1k(=+5운)가 1천으로 읽히던 문제, 1M EATING(I'M)→100만 오역, Str8 up→8힘 오역, 펫 이름표(Lv.S6 Black Kitty) 거르기, first come first serve·meet in FM·whisper to me·fire sale·grow up 등",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

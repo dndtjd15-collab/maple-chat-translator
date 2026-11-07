@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 99  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 100  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -243,9 +243,18 @@ class Glossary:
         # '105 M Att' / '105M att' = 마력 105 (1억500만 금액으로 읽히던 문제) — 금액 처리보다 먼저
         text = re.sub(r"(?<![A-Za-z0-9.,])(\d{2,3})\s?M\.?\s?(?i:atk|att|attack)(?![A-Za-z])", lambda m: hold(m.group(1) + "마"), text)
         # OCR: 'Tobis 2mll' = 2mil (금액이 '2ml' 로 남던 문제)
-        text = re.sub(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s?m[lI1|][lI1|](?![A-Za-z])", r"\1mil", text)
+        text = re.sub(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s?[mM][lI1|][lIL1|](?![A-Za-z])", r"\1mil", text)  # '1.4MlL' 도
+        # 'Shinkita +2ATT 1m4' = 1.4m (140만이 '100만 4' 로 읽히던 문제)
+        text = re.sub(r"(?<![A-Za-z0-9.,+])(\d)[mM](\d)(?![0-9A-Za-z%.,])", r"\1.\2m", text)
+        # '1M EATING GALBI' = I'M (문장 맨 앞 1M + 동사는 금액이 아님, '100만 갈비'로 읽히던 문제)
+        # 'I LOVE MA PLE' = maple ('MA'가 마력으로 번역되던 문제) / 'Str8 up' = 바로 ('8힘'으로 읽히던 문제)
+        text = re.sub(r"(?<![A-Za-z])ma\s+ple(?![A-Za-z])", "maple", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![A-Za-z0-9])str8\s+up(?![A-Za-z])", lambda m: hold("바로"), text, flags=re.IGNORECASE)
+        text = re.sub(r"^\s*1M(?=\s+(?:EATING|GOING|GONNA|COMING|LEAVING|DONE|BACK|HERE|SO|NOT|SORRY)\b)", "I'M", text)
         # OCR: '1011-1k cape' / 'IOIuk' / '10uk' = 10luk (능력치 10운이 '1천' 금액으로 읽히던 문제)
-        text = re.sub(r"(?<![\d.,A-Za-z])1011-1k(?![A-Za-z0-9])", "10luk", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![\d.,A-Za-z])(\d{1,2})11-1k(?![A-Za-z0-9])", r"\1luk", text, flags=re.IGNORECASE)  # '+511-1k' = +5luk
+        # 'TOBI (l SET LEFT)' = 1세트 남음
+        text = re.sub(r"\(\s?[lI1]\s?sets?\s?left\)?", lambda m: hold("1세트 남음"), text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9])[I1l][O0][I1l]?uk(?![A-Za-z])", "10luk", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z])(?:for|at)\s+(?=\d+(?:[.,]\d+)?\s*(?:k|kk|m|mil|mill|million)(?![A-Za-z]))", "", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z0-9+.])(\d+(?:[.,]\d+)?)\s*(k|kk|m|mil|mill|million)(?![A-Za-z]|\.\s?(?:def|att|atk|acc|avo|matk|ma\b))",
@@ -701,6 +710,9 @@ def nametag_like(msg, my_name):
             continue
         if known(w) or mine(w):
             hit = True
+            continue
+        if re.fullmatch(r"[^A-Za-z0-9]*L[vV][.,]?[\dSsOoIl]{1,3}[^A-Za-z0-9]*", t):
+            hit = True  # 펫 이름표의 레벨 표시 'Lv.S6' (Lv.56) -> 'Lv.S6 Black Kitty' 가 채팅으로 번역되던 문제
             continue
         word = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", t)
         if re.fullmatch(r"[a-z]{2,}", word) or word.lower() in _CHAT_SHORT or len(word) > 4:
