@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 100  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 101  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -720,6 +720,13 @@ def nametag_like(msg, my_name):
             unknown.append(word)
     if hit and not rest_chat:
         return True
+    # 'aiack Kitty Varken', 'varon atty' 처럼 이름표 단어가 깨져 읽힌 것 -> 모르는 단어가 전부 아는 이름표 단어와 비슷하면 이름표
+    if NAMETAG_WORDS and unknown and len(toks) <= 3 and all(
+            re.sub(r"[^a-z]", "", u.lower()) not in _CHAT_SHORT and re.sub(r"[^a-z]", "", u.lower()) not in _NAMETAG_STOP
+            and len(re.sub(r"[^a-z]", "", u.lower())) >= 4
+            and max(SequenceMatcher(None, re.sub(r"[^a-z]", "", u.lower()), k).ratio() for k in NAMETAG_WORDS) >= 0.6
+            for u in unknown):
+        return True
     # 'Black Kitty Sung' 처럼 이름표 조각이 2개 이상이고 모르는 단어가 1개뿐이면 그 단어도 이름표(펫·길드 이름)로 배움
     if hit and len(unknown) == 1 and len(toks) - 1 >= 2 and len(NAMETAG_WORDS) < 60 \
             and unknown[0].lower() not in _CHAT_SHORT and unknown[0].lower() not in _NAMETAG_STOP \
@@ -727,6 +734,24 @@ def nametag_like(msg, my_name):
         NAMETAG_WORDS.add(re.sub(r"[^a-z]", "", unknown[0].lower()))
         return True
     return False
+
+_LONE_CHAT = {"wow", "bruh", "rip", "same", "sure", "ikr", "true", "damn", "nah", "cya", "bye", "welcome", "gratz",
+              "congratz", "hello", "hii", "yep", "yup", "nvm", "idk", "kk", "okk", "okay", "noo", "nooo", "haha", "hahaha",
+              "xd", "xdd", "lmfao", "rofl", "sold", "bump", "done", "inv", "invite", "thx", "tyty", "ty!", "sorry"}
+
+
+def lone_word_tag(msg):
+    """닉네임 없이 읽힌 줄이 단어 하나(이름표)뿐인지. 'ty', 'lol' 같은 짧은 대화나 ?! 가 붙은 말은 남김."""
+    t = (msg or "").strip()
+    if re.fullmatch(r"[^A-Za-z0-9]*L[vV][.,]?\s?[\dSsOoIl]{1,3}[^A-Za-z0-9]*", t):
+        return True  # 'LV. 44' (몬스터·캐릭터 레벨 표시)
+    if " " in t or re.search(r"[?!]", t):
+        return False
+    w = re.sub(r"[^A-Za-z]", "", t)
+    if not (3 <= len(w) <= 10) or re.search(r"\d", t):
+        return False
+    return w.lower() not in _CHAT_SHORT and w.lower() not in _NAMETAG_STOP and w.lower() not in _LONE_CHAT
+
 
 def text_quality(text):
     """OCR 결과가 얼마나 '사람이 쓴 글' 같은지 0~1 점수 (찌꺼기 걸러내기·두 OCR 결과 중 고르기용)."""
@@ -4325,6 +4350,14 @@ def run_app():
                     if not name and not trade_of(msg) and nametag_like(msg, cfg.get("my_name")):
                         dlog("DROP-NAMETAG2", msg)
                         continue  # 투명한 채팅창 뒤로 지나간 내 캐릭터 이름표 조각
+                    if (name and name.lower() in NAMETAG_WORDS and not trade_of(msg)
+                            and nametag_like(name + " " + msg, cfg.get("my_name"))):
+                        dlog("DROP-NAMETAG3", name, msg)
+                        continue  # "Kitty' Varken" 처럼 펫 이름표의 ' 를 : 로 읽어 'Kitty' 를 닉네임으로 본 것
+                    if (not name and kind == "일반" and not trade_of(msg) and not HANGUL_RE.search(msg)
+                            and lone_word_tag(msg)):
+                        dlog("DROP-LONEWORD", msg)
+                        continue  # 닉네임 없이 단어 하나만 읽힌 줄 ('sagi', 'gomja', 'LV. 44') = 게임 화면의 다른 캐릭터·몬스터 이름표
                     if letters < (1 if name else 3):
                         continue  # OCR 찌꺼기 (닉네임이 있는 줄은 "dd", "ty" 같은 짧은 말도 표시)
                     if kind == "공지" and cfg.get("hide_notice", True):
