@@ -1,6 +1,6 @@
 {
-  "version": 101,
-  "note": "번역 보강: 펫·다른 캐릭터 이름표 조각(Varken·aiack Kitty·sagi·LV. 44 등)이 채팅으로 번역되던 문제 거르기, highest offer get→최고가에 넘김, aglc wand→매직 완드, Pm prices→가격 귓 주세요",
+  "version": 102,
+  "note": "번역 보강: yessir→넵, are you for real→진심임, fast sell→급처, 1 Oatt/IO attack→10공, Owo→OwO, Gephatt→게파트, kng slime→킹슬라임, white rabbits foot→흰 토끼발 등 사전 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
