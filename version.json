@@ -1,6 +1,6 @@
 {
-  "version": 103,
-  "note": "몬스터·펫 레벨 이름표(Lv.57 Skeleton Soldier 등)가 채팅으로 번역되던 문제 거르기, top and bot→상의 하의 (bot이 매크로로 번역되던 오역)",
+  "version": 104,
+  "note": "OCR 변형 사전 보강 (Eamnasl→귀고리, kurnbi→금비 표창, Mack Scroll→공격력 주문서, Intermediatel→중급, farn→자유시장 등), 'OO has logged in.' 접속 알림 숨김",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

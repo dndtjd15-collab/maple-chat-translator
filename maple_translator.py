@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 103  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 104  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -2920,7 +2920,8 @@ _NOTICE_RE = re.compile(r"[\[(]\{?공지|공지[\]」)]|초대\s*허|게임\s*�
                         # 파티 시스템 메시지 (들어옴/나감/추방/해체/파티장 변경/초대)
                         r"|파티를\s*(탈퇴|떠|해체|결성|만들)|파티에\s*(가입|참여|들어|초대)|파티장|파티에서\s*(추방|강퇴|탈퇴)|초대(를|했|하였)"
                         r"|(has\s+)?(left|joined)\s+(the\s+)?party|been\s+(expelled|kicked)|party\s+(has\s+been\s+)?disbanded"
-                        r"|(is\s+now|became)\s+the\s+party\s+leader|invited\s+you|party\s+invitation|already\s+in\s+a\s+party", re.I)
+                        r"|(is\s+now|became)\s+the\s+party\s+leader|invited\s+you|party\s+invitation|already\s+in\s+a\s+party"
+                        r"|has\s+logged\s+(in|out|off)\.?\s*$", re.I)  # 친구·길드원 접속 알림 ('Varken has logged in.')
 
 
 # ---- 거래 글 판별 / 찾는 물건(찜) ------------------------------------------
