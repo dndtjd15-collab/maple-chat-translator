@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 104  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 105  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -753,7 +753,8 @@ def lone_word_tag(msg):
     return w.lower() not in _CHAT_SHORT and w.lower() not in _NAMETAG_STOP and w.lower() not in _LONE_CHAT
 
 
-_MOB_LV_RE = re.compile(r"(?:^|\s)[^A-Za-z0-9\s]*L[vV]\s?[.,]\s?[\dSsOoIl?]{0,3}(?=[\sA-Za-z]|$)")
+_MOB_LV_RE = re.compile(r"(?:^|\s)\S{0,4}?L[vV]\s?[.,•]\s?[\dSsOoIl?]{0,3}(?=[\sA-Za-z]|$)")
+_JUNK_NUM_LETTER_RE = re.compile(r"^[^A-Za-z0-9]*\d{1,4}[^A-Za-z0-9\s]*\s+[ac-jln-zAC-JLN-Z][^A-Za-z0-9]*$")
 _MOB_CHATWORDS = {"lf", "lfg", "lfm", "looking", "need", "anyone", "who", "any", "want", "join", "hp", "mp"}
 
 
@@ -767,10 +768,15 @@ def mob_tag_like(msg):
     toks = t.split()
     if len(toks) > 8 or not _MOB_LV_RE.search(t):
         return False
+    prev = ""
     for tok in toks:
         w = re.sub(r"[^a-z]", "", tok.lower())
+        if re.search(r"L[vV]\s?[.,•]", prev) and len(w) <= 3:
+            prev = tok
+            continue  # 'LV. gg' 처럼 레벨 바로 뒤 짧은 단어 = 캐릭터·펫 이름 (채팅 'gg' 아님)
         if w in _CHAT_SHORT or w in _NAMETAG_STOP or w in _MOB_CHATWORDS:
             return False
+        prev = tok
     return True
 
 
@@ -4355,6 +4361,9 @@ def run_app():
                     if not name and not re.search(r"[A-Za-z가-힣]", msg):
                         dlog("DROP-JUNK", msg)
                         continue  # 닉네임 없이 숫자·기호만 있는 줄 ('20 461', '452') = 다른 UI 숫자를 읽은 찌꺼기
+                    if not name and not trade_of(msg) and _JUNK_NUM_LETTER_RE.match(msg):
+                        dlog("DROP-JUNK", msg)
+                        continue  # 숫자 + 글자 하나 ('401 y', '01 E', '17 A') = 방송 오버레이 '라이브' 등을 읽은 찌꺼기 (k·m·b 금액은 남김)
                     if not name and re.search(r"\d+(?:\.\d+)?\s?/\s?\d+(?:\.\d+)?\s?[KMG]B\b|\b[KMG]B/s\b", msg):
                         dlog("DROP-JUNK", msg)
                         continue  # 게임 밖 다운로드 진행 표시 ('1.7/6.2 GB 48.2 MB/s') -> 'MB'가 '불량'으로 번역되던 찌꺼기

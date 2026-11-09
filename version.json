@@ -1,6 +1,6 @@
 {
-  "version": 104,
-  "note": "OCR 변형 사전 보강 (Eamnasl→귀고리, kurnbi→금비 표창, Mack Scroll→공격력 주문서, Intermediatel→중급, farn→자유시장 등), 'OO has logged in.' 접속 알림 숨김",
+  "version": 105,
+  "note": "레벨 이름표 조각('LV. gg', 'ILV.', 'LV•') 더 거르기, '401 y' 같은 방송 오버레이 찌꺼기 숨김, Igger Attack Scroll→단검 공격력 주문서, erald Earrings→에메랄드 귀고리",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
