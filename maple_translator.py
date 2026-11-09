@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 102  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 103  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -751,6 +751,27 @@ def lone_word_tag(msg):
     if not (3 <= len(w) <= 10) or re.search(r"\d", t):
         return False
     return w.lower() not in _CHAT_SHORT and w.lower() not in _NAMETAG_STOP and w.lower() not in _LONE_CHAT
+
+
+_MOB_LV_RE = re.compile(r"(?:^|\s)[^A-Za-z0-9\s]*L[vV]\s?[.,]\s?[\dSsOoIl?]{0,3}(?=[\sA-Za-z]|$)")
+_MOB_CHATWORDS = {"lf", "lfg", "lfm", "looking", "need", "anyone", "who", "any", "want", "join", "hp", "mp"}
+
+
+def mob_tag_like(msg):
+    """닉네임 없이 읽힌 줄이 몬스터·펫 머리 위 레벨 이름표인지 ('Lv.57 Skeleton Soldier Lv.63 Officer').
+    채팅창 영역이 게임 화면에 겹치면 '레벨.S7 뼈대 흙' 처럼 이상하게 번역되던 문제.
+    파티 구하기 같은 대화 단어나 ?, !, : 가 있으면 채팅으로 보고 남김."""
+    t = (msg or "").strip()
+    if not t or ":" in t or re.search(r"[?!]", t):
+        return False
+    toks = t.split()
+    if len(toks) > 8 or not _MOB_LV_RE.search(t):
+        return False
+    for tok in toks:
+        w = re.sub(r"[^a-z]", "", tok.lower())
+        if w in _CHAT_SHORT or w in _NAMETAG_STOP or w in _MOB_CHATWORDS:
+            return False
+    return True
 
 
 def text_quality(text):
@@ -4354,6 +4375,9 @@ def run_app():
                             and nametag_like(name + " " + msg, cfg.get("my_name"))):
                         dlog("DROP-NAMETAG3", name, msg)
                         continue  # "Kitty' Varken" 처럼 펫 이름표의 ' 를 : 로 읽어 'Kitty' 를 닉네임으로 본 것
+                    if not name and not trade_of(msg) and not HANGUL_RE.search(msg) and mob_tag_like(msg):
+                        dlog("DROP-MOBTAG", msg)
+                        continue  # 몬스터·펫 레벨 이름표 ('Lv.57 Skeleton Soldier') = 채팅창 뒤 게임 화면
                     if (not name and kind == "일반" and not trade_of(msg) and not HANGUL_RE.search(msg)
                             and lone_word_tag(msg)):
                         dlog("DROP-LONEWORD", msg)

@@ -1935,7 +1935,13 @@
     "white rabbits foot": "흰 토끼발",
     "rabbits footpmo": "토끼발 (가격 제시 귓 주세요)",
     "white rabbits footpmo": "흰 토끼발 (가격 제시 귓 주세요)",
-    "lce cold red": "아이스 콜드 레드"
+    "lce cold red": "아이스 콜드 레드",
+    "top and bot": "상의 하의",
+    "top and bots": "상의 하의",
+    "top & bot": "상의 하의",
+    "top/bot": "상의/하의",
+    "top n bot": "상의 하의",
+    "gears": "장비"
   },
   "terms_case": {
     "MA": "마력",
