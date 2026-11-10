@@ -1,6 +1,6 @@
 {
-  "version": 106,
-  "note": "레벨 이름표 찌꺼기('1!..75' LV. eg' 처럼 기호 사이 ! 가 섞인 조각)도 거르기",
+  "version": 107,
+  "note": "'I .5m'/'1 .45rn' 금액(150만/145만) 인식, afw/abw=즉시 낙찰가, att love=장공, glovel O%=장갑 10%, 'str +11 cd+2' 스탯 오인 수정, takes it=이면 바로 드려요",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
