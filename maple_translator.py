@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 105  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 106  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -763,8 +763,8 @@ def mob_tag_like(msg):
     채팅창 영역이 게임 화면에 겹치면 '레벨.S7 뼈대 흙' 처럼 이상하게 번역되던 문제.
     파티 구하기 같은 대화 단어나 ?, !, : 가 있으면 채팅으로 보고 남김."""
     t = (msg or "").strip()
-    if not t or ":" in t or re.search(r"[?!]", t):
-        return False
+    if not t or ":" in t or re.search(r"[A-Za-z]['’]?[?!]|[?!]\s*$", t):
+        return False  # 'pls!' 'lv?' 처럼 글자 뒤·문장 끝 ?! = 채팅 ('1!..75' LV. eg' 처럼 기호 사이 ! 는 찌꺼기)
     toks = t.split()
     if len(toks) > 8 or not _MOB_LV_RE.search(t):
         return False

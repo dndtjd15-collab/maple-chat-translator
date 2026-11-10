@@ -1,6 +1,6 @@
 {
-  "version": 105,
-  "note": "레벨 이름표 조각('LV. gg', 'ILV.', 'LV•') 더 거르기, '401 y' 같은 방송 오버레이 찌꺼기 숨김, Igger Attack Scroll→단검 공격력 주문서, erald Earrings→에메랄드 귀고리",
+  "version": 106,
+  "note": "레벨 이름표 찌꺼기('1!..75' LV. eg' 처럼 기호 사이 ! 가 섞인 조각)도 거르기",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
