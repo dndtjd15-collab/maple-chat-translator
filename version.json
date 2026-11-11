@@ -1,6 +1,6 @@
 {
-  "version": 107,
-  "note": "'I .5m'/'1 .45rn' 금액(150만/145만) 인식, afw/abw=즉시 낙찰가, att love=장공, glovel O%=장갑 10%, 'str +11 cd+2' 스탯 오인 수정, takes it=이면 바로 드려요",
+  "version": 108,
+  "note": "'1 .4rnil'/'2rnil'/'l . 1 rn' 금액(140만/200만/110만) 인식, 금액 사이 AM=즉시 낙찰가, Scrollrlntermediate·GlovesAttack·Greaterl·Sellinq·Earrinqs OCR 변형, shoot offer/nearest offer/oink oink/map=맵 등 표현 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
