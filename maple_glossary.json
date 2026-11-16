@@ -178,7 +178,10 @@
     "rneet": "meet",
     "sorty": "sorry",
     "quiqe": "quick",
-    "rrices": "prices"
+    "rrices": "prices",
+    "sor": "sorry",
+    "noo": "no",
+    "nooo": "no"
   },
   "terms": {
     "S>": "[팝니다]",
@@ -2020,7 +2023,14 @@
     "dony buy from": "사지 마세요(거래 주의):",
     "dont buy from": "사지 마세요(거래 주의):",
     "don't buy from": "사지 마세요(거래 주의):",
-    "do not buy from": "사지 마세요(거래 주의):"
+    "do not buy from": "사지 마세요(거래 주의):",
+    "buying a spot for": "자리 삽니다",
+    "buying a spot": "자리 삽니다",
+    "selling a spot": "자리 팝니다",
+    "firrn": "네고 X",
+    "done and dusted": "다 끝났다",
+    "he left": "걔 나갔어",
+    "she left": "걔 나갔어"
   },
   "terms_case": {
     "MA": "마력",

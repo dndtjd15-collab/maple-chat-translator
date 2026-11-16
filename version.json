@@ -1,6 +1,6 @@
 {
-  "version": 108,
-  "note": "'1 .4rnil'/'2rnil'/'l . 1 rn' 금액(140만/200만/110만) 인식, 금액 사이 AM=즉시 낙찰가, Scrollrlntermediate·GlovesAttack·Greaterl·Sellinq·Earrinqs OCR 변형, shoot offer/nearest offer/oink oink/map=맵 등 표현 추가",
+  "version": 109,
+  "note": "'5.1rni' 금액(510만) 인식, Attack Stroll→주문서·firrn→네고 X OCR 변형, 'Buying a spot'=자리 삽니다, sor/noo/he left/done and dusted 등 일상 표현 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",

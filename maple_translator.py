@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 108  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 109  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -223,9 +223,12 @@ class Glossary:
         # OCR: '2rn' = 2m ('Golve+16mattk-2rn' 처럼 m 이 rn 으로 읽힘) / '.42rn' 처럼 앞에 점만 있는 것도
         text = re.sub(r"(?<=\.[Il])rni[lI1|]{1,2}(?![A-Za-z])", "mil", text)
         text = re.sub(r"(?<=\d)\s?rni[lI1|]{1,2}(?![A-Za-z])", "mil", text)  # '2rnil' = 2mil
+        text = re.sub(r"(?<=\d)rni(?![A-Za-z])", "m", text)  # '5.1rni' = 5.1m (금액이 영어로 남던 문제)
         text = re.sub(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?|\.\d{1,2})rn(?![A-Za-z])", r"\1m", text)
         # OCR: 'Scrollrlntermediate' = Scroll: Intermediate / 'GlovesAttack' 'Claw Mack' = Gloves Attack (영어로 남던 문제)
         text = re.sub(r"(?<![A-Za-z])(scroll)\s?r\s?[lI](?=ntermedia)", r"\1: I", text, flags=re.IGNORECASE)
+        # OCR: 'Gloves Attack Stroll' = Scroll (영어로 남던 문제)
+        text = re.sub(r"(?<=attack )stroll(?![A-Za-z])", "Scroll", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![A-Za-z])(gloves?|claw|cape|dagger|wand|staff|spear|shield)\s?(?:attack|mack)(?=\s?scroll|\s|$)", r"\1 Attack", text, flags=re.IGNORECASE)
         # OCR: 'C/O l. 5m' / '1 .3mil' / '1 .05m' = 1.5m / 1.3mil / 1.05m (소수점 앞뒤가 띄어져 500만으로 읽히던 문제)
         text = re.sub(r"(?<![A-Za-z0-9.,])([Il1])\.\s(\d)\s?(?=(?:k|m|mil|mill|million)(?![A-Za-z]))", r"1.\2", text, flags=re.IGNORECASE)
@@ -1896,6 +1899,7 @@ def normalize_trade(msg):
     msg = re.sub(r"(?<=\.\d)rn(?![A-Za-z])", "m", msg)  # "I .5rn" -> "I .5m" (m 을 rn 으로 읽음)
     msg = re.sub(r"(?<=\.[Il])rni[lI1|]{1,2}(?![A-Za-z])", "mil", msg)  # "S> l.lrnil" = 1.1mil
     msg = re.sub(r"(?<=\d)\s?rni[lI1|]{1,2}(?![A-Za-z])", "mil", msg)  # "1 .4rnil" / "2rnil" -> mil (금액이 영어로 남던 문제)
+    msg = re.sub(r"(?<=\d)rni(?![A-Za-z])", "m", msg)  # "5.1rni" -> 5.1m
     msg = re.sub(r"(\.\s?\d{1,2})\s?rn(?![A-Za-z])", r"\1m", msg)  # "S>l . 1 rn" -> 1.1m ('right now'로 번역되던 문제)
     msg = re.sub(r"(?<![A-Za-z])(kumbi)[lI|]\s?\.\s?(\d{1,2})\s?(?=(?:k|m|mil)(?![A-Za-z]))", r"\1 1.\2", msg, flags=re.I)  # "kumbil .4mil" -> kumbi 1.4mil
     # "C/O 1.5M AM/ 2M" -> a/w (즉시 낙찰가, '오전'으로 번역되던 문제) — 금액 두 개 사이일 때만
