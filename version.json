@@ -1,6 +1,6 @@
 {
-  "version": 109,
-  "note": "'5.1rni' 금액(510만) 인식, Attack Stroll→주문서·firrn→네고 X OCR 변형, 'Buying a spot'=자리 삽니다, sor/noo/he left/done and dusted 등 일상 표현 추가",
+  "version": 110,
+  "note": "닫는 ]가 l로 읽힌 아이템 링크([Arwen's Glass Shoel) 인식, 98magic attack=98마, rn ste crate=미스테리 상자, lntermediate·accept items·6zzz 등 OCR/표현 추가, AI 메모·或 정리",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
