@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 111  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 112  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1905,6 +1905,9 @@ def normalize_trade(msg):
     msg = re.sub(r"^([\s:;]*)SY(?!ST)(?=\s+[A-Z0-9+]|[A-Z]{3,})", r"\1S> ", msg)
     # 줄 맨 앞 sell / buy ('sell scrolls' -> '주문서 매도', 'Buy thief ...' -> '구매' 로 번역되던 문제)
     msg = re.sub(r"^([\s:;]*)(sell|buy)(?=\s+[A-Za-z0-9+])", lambda m: m.group(1) + ("S> " if m.group(2).lower() == "sell" else "B> "), msg, flags=re.I)
+    # '0k i go help' / 'oh 0k np' / 'nego is 0k' = ok (O 를 0 으로 읽어 '0메소' 로 번역되던 문제, 0메소 가격은 없음)
+    #  숫자 바로 뒤('10 0k')나 개당 표시('0k each') 앞은 금액이 잘린 것일 수 있어 그대로 둠
+    msg = re.sub(r"(?<![\w.,+$])(?<!\d\s)0[kK](?=\s+(?!ea|per\b|x\d*\b)[A-Za-z]|\s*[!.?,]*\s*$)", "ok", msg, flags=re.I)
     # '5x70k' -> '5x 70k' (금액이 영어로 남던 문제)
     msg = re.sub(r"(?<![A-Za-z0-9.])(\d{1,2})x(\d{1,3}(?:\.\d)?[kKmM])(?![A-Za-z])", r"\1x \2", msg)
     # 금액 앞 숫자 1 을 l / I 로 읽은 경우: "l .8m" -> "1.8m", "I mil" -> "1 mil"
@@ -3040,9 +3043,41 @@ def prices_in(text):
 
 def ai_output_ok(orig, tr):
     """AI 번역을 써도 되는지: 가격(메소 금액)이 원문과 똑같을 때만."""
-    if not tr or "(추정)" in tr:
+    if not tr or "(추정)" in tr or "번역 불가" in tr:
         return False
-    return set(prices_in(normalize_trade(orig))) == set(prices_in(tr))
+    if re.search(r"[ㄱ-ㅎ]\s?[ㅏ-ㅛㅝ-ㅟㅡ-ㅣ]", tr):
+        return False  # 'ㅈ ㅗㅇ아' 처럼 자모가 깨진 출력 -> 구글 번역 유지 (ㅋㅋㅠㅠ 는 괜찮음)
+    o = normalize_trade(orig)
+    # 'MN 4rn8' = 4.8m (번역 쪽 protect 와 같은 규칙, 맞는 480만 번역이 400만으로 오인돼 버려지던 문제)
+    o = re.sub(r"(?<![A-Za-z0-9.,+])(\d)[mM](\d)(?![0-9A-Za-z%.,])", r"\1.\2m", o)
+    return set(prices_in(o)) == set(prices_in(tr))
+
+
+# 거래 표시처럼 보이는 것 (OCR로 깨진 WT8> / S: / sel / Bu 등 포함) — 있으면 AI 판단을 믿음
+_TRADE_HINT_RE = re.compile(r"(?<![A-Za-z])(?:[SB5$8]\s?[>:»›)}<•]|wt[sb8]|vft[sb]|sel+[lI1i]*(?:n[gq]?)?|sale|bu(?:y[a-z]*)?|tradin[gq]?|lf|pm|offers?|fm|cheap|c\s?/\s?[o0]|a\s?/\s?w|obo|ea(?:ch)?)(?![A-Za-z])", re.I)
+_NEED_RE = re.compile(r"\bneed(?:ed|ing)?\b|(?<![A-Za-z])lf(?![A-Za-z])|looking\s+for", re.I)
+
+
+def fix_ai_trade_tags(src, tr):
+    """AI가 원문에 없는 [팝니다]/[삽니다]를 붙이거나 거꾸로 붙인 경우 바로잡음.
+    ('OVERALL LUK 100%' / 'real 1' -> [팝니다], 'ANY SCROLL 13K. NEED 100.' -> [팝니다],
+     'B> Tedd Bear ...' -> [팝니다] 로 나오던 문제). 거래 표시 흔적이나 금액이 있으면 AI 판단 유지."""
+    if not tr or "[" not in tr:
+        return tr
+    has_sell = bool(_SELL_RE.search(src))
+    has_buy = bool(_BUY_RE.search(src))
+    strong_sell = bool(_SELL_STRONG.search(src))
+    strong_buy = bool(_BUY_STRONG.search(src))
+    loose = bool(_TRADE_HINT_RE.search(src)) or bool(prices_in(normalize_trade(src)))
+    for tag, ok, other_tag, other_strong in (("[팝니다]", has_sell, "[삽니다]", strong_buy),
+                                            ("[삽니다]", has_buy, "[팝니다]", strong_sell)):
+        if tag not in tr or ok:
+            continue
+        if other_strong and other_tag not in tr:  # B> 인데 [팝니다] -> [삽니다]
+            tr = tr.replace(tag, other_tag)
+        elif not loose or (tag == "[팝니다]" and _NEED_RE.search(src)):
+            tr = re.sub(re.escape(tag) + r"\s*", "", tr)  # 거래 표시도 금액도 없음 / 'need' 인데 [팝니다]
+    return re.sub(r"\s{2,}", " ", tr).strip()
 
 
 def parse_price_input(text):
@@ -4540,6 +4575,7 @@ def run_app():
             try:
                 outs = ai.translate_batch([m for _i, m in job])
                 for (eid, _m), tr in zip(job, outs):
+                    tr = fix_ai_trade_tags(_m, tr)
                     if tr and not ai_output_ok(_m, tr):
                         dlog("AI-REJECT", _m, "=>", tr)
                         continue  # 가격이 원문과 다르면 -> 구글 번역 유지 (저장도 안 함)

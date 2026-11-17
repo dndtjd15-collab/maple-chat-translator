@@ -1,6 +1,6 @@
 {
-  "version": 111,
-  "note": "OCR 금액 인식 보강: 'Irn/lrn'=1m, '.grnil'=.9mil, 점으로 시작하는 금액(.85m=85만), 'whis er'=귓, 'endoffer'=가격 제안 귓 주세요",
+  "version": 112,
+  "note": "AI가 원문에 없는 [팝니다]/[삽니다]를 붙이거나 B>를 [팝니다]로 뒤집던 문제 수정, '0k'=ok(0메소 오역), 'MN 4rn8' 가격 검사, 깨진 자모·'번역 불가' AI 출력 거름, Dark Clench·OCR 변형 용어 추가",
   "files": [
     "maple_translator.py",
     "maple_glossary.json",
