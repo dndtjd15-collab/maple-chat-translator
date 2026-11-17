@@ -19,7 +19,7 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-APP_VERSION = 110  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
+APP_VERSION = 111  # 업데이트할 때마다 1씩 올림 (GitHub version.json 과 비교)
 UPDATE_BASE = "https://raw.githubusercontent.com/dndtjd15-collab/maple-chat-translator/main/"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1913,6 +1913,12 @@ def normalize_trade(msg):
     msg = re.sub(r"(?<=\d)\s?rni[lI1|]{1,2}(?![A-Za-z])", "mil", msg)  # "1 .4rnil" / "2rnil" -> mil (금액이 영어로 남던 문제)
     msg = re.sub(r"(?<=\d)rni(?![A-Za-z])", "m", msg)  # "5.1rni" -> 5.1m
     msg = re.sub(r"(\.\s?\d{1,2})\s?rn(?![A-Za-z])", r"\1m", msg)  # "S>l . 1 rn" -> 1.1m ('right now'로 번역되던 문제)
+    msg = re.sub(r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)rn(?![A-Za-z])", r"\1m", msg)  # '20rn+' / '4rn/3rn' = 20m (가격 검사에서 금액이 안 보이던 문제)
+    # OCR: '37att Irn' = 1m (1 을 I/l, m 을 rn 으로 읽어 '이른'으로 번역되던 문제) — 따로 떨어진 낱말일 때만
+    msg = re.sub(r"(?<=[\s:/\]>])[Il](?:rn|rni[lI1|]{1,2})(?=\s*$|\s*[,.!/])", "1m", msg)  # 'Irn Japanese'(I'm) 는 제외
+    # OCR: '[Steel Slain] .grnil' = .9mil (9 를 g 로 읽음)
+    msg = re.sub(r"(?:^|(?<=[\s:/\]]))\.g(?=(?:rni[lI1|]{1,2}|mil)(?![A-Za-z]))", ".9", msg)
+    msg = re.sub(r"(?:^|(?<=[\s:/\]]))\.(\d{1,2})rni[lI1|]{1,2}(?![A-Za-z])", r".\1mil", msg)
     msg = re.sub(r"(?<![A-Za-z])(kumbi)[lI|]\s?\.\s?(\d{1,2})\s?(?=(?:k|m|mil)(?![A-Za-z]))", r"\1 1.\2", msg, flags=re.I)  # "kumbil .4mil" -> kumbi 1.4mil
     # "C/O 1.5M AM/ 2M" -> a/w (즉시 낙찰가, '오전'으로 번역되던 문제) — 금액 두 개 사이일 때만
     msg = re.sub(r"(?<=\d[mMkK])\s+[Aa][MmN]/?\s*(?=\d+(?:\.\d+)?\s?[mMkK](?![A-Za-z]))", " a/w ", msg)
@@ -1924,6 +1930,8 @@ def normalize_trade(msg):
     msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\s\.(\d{1,2})\s?((?i:k|m|mil))(?![A-Za-z])", r"\1.\2\3", msg)
     msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\.\s(\d)((?i:k|m|mil))(?![A-Za-z])", r"\1.\2\3", msg)
     msg = re.sub(r"(?<![A-Za-z0-9.,])(\d{1,3})\s(0{1,2})\s?((?i:k))(?![A-Za-z])", r"\1\2\3", msg)
+    # 앞에 0 없이 점으로 시작하는 금액 '.85m' / '.9mil' = 85만 / 90만 (영어로 남던 문제)
+    msg = re.sub(r"(?:^|(?<=[\s:/\]])(?<![\dIl|]\s))\.(\d{1,2})\s?(?=(?:k|m|mil|mill)(?![A-Za-z]))", r"0.\1", msg, flags=re.I)
     # 60% 를 600/0 으로 읽은 경우 (GFA600/0 -> GFA 60%)
     msg = re.sub(r"(?<![\d/])(10|30|60|70|100)0/0(?![\d])", r" \1%", msg)
     msg = re.sub(r"(?<![\d/.,])1\s00/0(?![\d])", " 10%", msg)  # "LUK 1 00/0" -> 10%

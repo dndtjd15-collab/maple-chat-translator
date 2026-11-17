@@ -2057,7 +2057,12 @@
     "magic attatck": "마력",
     "rnagic attatck": "마력",
     "rnagic attack": "마력",
-    "magic atack": "마력"
+    "magic atack": "마력",
+    "whis er": "귓",
+    "whisp er": "귓",
+    "s endoffer": "가격 제안 귓 주세요",
+    "endoffer": "가격 제안 귓 주세요",
+    "sendoffer": "가격 제안 귓 주세요"
   },
   "terms_case": {
     "MA": "마력",
